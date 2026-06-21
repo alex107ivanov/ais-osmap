@@ -88,6 +88,30 @@ def test_index_uses_template_context():
     assert result["default_track_limit"] == ais_map.TRACK_POINT_LIMIT
 
 
+def test_handle_nmea_records_raw_message(monkeypatch, tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600, raw_retention_seconds=3600)
+    monkeypatch.setattr(ais_map, "storage", storage)
+    monkeypatch.setattr(
+        ais_map,
+        "decode",
+        lambda *_args, **_kwargs: FakeMessage(
+            {
+                "mmsi": 123456789,
+                "msg_type": 1,
+                "lat": 41.7,
+                "lon": 41.6,
+            }
+        ),
+    )
+
+    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
+    raw_messages = storage.get_recent_raw_messages(limit=5)
+
+    assert raw_messages[0]["mmsi"] == 123456789
+    assert raw_messages[0]["message_type"] == 1
+    assert raw_messages[0]["raw_line"] == "!AIVDM,1,1,,A,stub,0*00"
+
+
 def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
     monkeypatch.setattr(ais_map, "storage", storage)
@@ -227,7 +251,7 @@ def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):
     assert vessels == []
 
 
-def test_static_assets_include_filters_and_diagnostics_toggle():
+def test_static_assets_include_filters_diagnostics_and_raw_panel():
     app_js = open('static/app.js', 'r', encoding='utf-8').read()
     template = open('templates/index.html', 'r', encoding='utf-8').read()
 
@@ -236,4 +260,6 @@ def test_static_assets_include_filters_and_diagnostics_toggle():
     assert 'filter-aton' in template
     assert 'filter-diagnostics-hit' in template
     assert 'diagnostics-toggle' in template
+    assert 'raw-panel' in template
+    assert 'api/raw-messages' in app_js
     assert 'passesFilters' in app_js

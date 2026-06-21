@@ -7,13 +7,20 @@ from typing import Any
 DB_PATH = Path("ais_data.sqlite3")
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_TRACK_POINT_LIMIT = 50
+DEFAULT_RAW_RETENTION_SECONDS = 6 * 60 * 60
 MAX_DIAGNOSTIC_MESSAGES = 200
 
 
 class AISStorage:
-    def __init__(self, db_path: str | Path = DB_PATH, ttl_seconds: int = DEFAULT_TTL_SECONDS):
+    def __init__(
+        self,
+        db_path: str | Path = DB_PATH,
+        ttl_seconds: int = DEFAULT_TTL_SECONDS,
+        raw_retention_seconds: int = DEFAULT_RAW_RETENTION_SECONDS,
+    ):
         self.db_path = str(db_path)
         self.ttl_seconds = ttl_seconds
+        self.raw_retention_seconds = raw_retention_seconds
         self._init_db()
 
     def _connect(self) -> sqlite3.Connection:
@@ -78,11 +85,26 @@ class AISStorage:
                     created_at REAL NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS raw_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    mmsi INTEGER,
+                    message_type INTEGER,
+                    raw_line TEXT,
+                    payload_json TEXT,
+                    created_at REAL NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_vessel_tracks_mmsi_seen_at
                     ON vessel_tracks (mmsi, seen_at);
 
                 CREATE INDEX IF NOT EXISTS idx_diagnostics_created_at
                     ON diagnostics_messages (created_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_raw_messages_created_at
+                    ON raw_messages (created_at DESC);
+
+                CREATE INDEX IF NOT EXISTS idx_raw_messages_mmsi_created_at
+                    ON raw_messages (mmsi, created_at DESC);
                 """
             )
             self._ensure_column(conn, "vessel_static", "callsign", "TEXT")
@@ -140,6 +162,91 @@ class AISStorage:
         return {
             "vessel_tracks": invalid_track_rows,
             "vessel_positions": invalid_position_rows,
+        }
+
+    def purge_old_raw_messages(self, now: float | None = None) -> int:
+        cutoff = (now or time.time()) - self.raw_retention_seconds
+        with self._connect() as conn:
+            return conn.execute("DELETE FROM raw_messages WHERE created_at < ?", (cutoff,)).rowcount
+
+    def record_raw_message(
+        self,
+        raw_line: str,
+        payload: dict[str, Any],
+        mmsi: int | None = None,
+        message_type: int | None = None,
+        created_at: float | None = None,
+    ) -> None:
+        timestamp = created_at or time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO raw_messages (mmsi, message_type, raw_line, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    mmsi,
+                    message_type,
+                    raw_line,
+                    json.dumps(payload, sort_keys=True),
+                    timestamp,
+                ),
+            )
+        self.purge_old_raw_messages(now=timestamp)
+
+    def get_recent_raw_messages(
+        self,
+        limit: int = 50,
+        mmsi: int | None = None,
+        message_type: int | None = None,
+    ) -> list[dict[str, Any]]:
+        query = """
+            SELECT id, mmsi, message_type, raw_line, payload_json, created_at
+            FROM raw_messages
+        """
+        conditions = []
+        params: list[Any] = []
+        if mmsi is not None:
+            conditions.append("mmsi = ?")
+            params.append(mmsi)
+        if message_type is not None:
+            conditions.append("message_type = ?")
+            params.append(message_type)
+        if conditions:
+            query += " WHERE " + " AND ".join(conditions)
+        query += " ORDER BY created_at DESC LIMIT ?"
+        params.append(limit)
+        with self._connect() as conn:
+            rows = conn.execute(query, params).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "mmsi": row["mmsi"],
+                "message_type": row["message_type"],
+                "raw_line": row["raw_line"],
+                "payload": json.loads(row["payload_json"]) if row["payload_json"] else None,
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def get_raw_message_summary(self, now: float | None = None) -> dict[str, Any]:
+        cutoff = (now or time.time()) - self.raw_retention_seconds
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM raw_messages WHERE created_at >= ?", (cutoff,)).fetchone()[0]
+            unique_mmsi = conn.execute(
+                "SELECT COUNT(DISTINCT mmsi) FROM raw_messages WHERE created_at >= ? AND mmsi IS NOT NULL",
+                (cutoff,),
+            ).fetchone()[0]
+            by_type_rows = conn.execute(
+                "SELECT message_type, COUNT(*) AS count FROM raw_messages WHERE created_at >= ? GROUP BY message_type ORDER BY count DESC",
+                (cutoff,),
+            ).fetchall()
+        return {
+            "retention_seconds": self.raw_retention_seconds,
+            "total_messages": total,
+            "unique_mmsi": unique_mmsi,
+            "message_types": {str(row["message_type"]): row["count"] for row in by_type_rows},
         }
 
     def record_diagnostic_message(
@@ -225,6 +332,7 @@ class AISStorage:
                 "DELETE FROM vessel_static WHERE updated_at < ? AND mmsi NOT IN (SELECT mmsi FROM vessel_positions)",
                 (cutoff,),
             )
+        self.purge_old_raw_messages(now=now)
 
     def upsert_static(self, mmsi: int, fields: dict[str, Any], seen_at: float | None = None) -> None:
         timestamp = seen_at or time.time()

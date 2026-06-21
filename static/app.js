@@ -31,6 +31,11 @@ const controls = {
   diagnosticsToggle: document.getElementById('diagnostics-toggle'),
   diagnosticsSummary: document.getElementById('diagnostics-summary'),
   diagnosticsList: document.getElementById('diagnostics-list'),
+  rawSummary: document.getElementById('raw-summary'),
+  rawList: document.getElementById('raw-list'),
+  rawFilterMmsi: document.getElementById('raw-filter-mmsi'),
+  rawFilterType: document.getElementById('raw-filter-type'),
+  rawRefresh: document.getElementById('raw-refresh'),
   statsActive: document.getElementById('stats-active'),
   statsTracks: document.getElementById('stats-tracks'),
   statsAge: document.getElementById('stats-age'),
@@ -54,6 +59,8 @@ function savePreferences() {
     filterAton: controls.filterAton.checked,
     filterDiagnosticsHit: controls.filterDiagnosticsHit.checked,
     diagnosticsCollapsed: controls.diagnosticsPanel.classList.contains('is-collapsed'),
+    rawFilterMmsi: controls.rawFilterMmsi.value,
+    rawFilterType: controls.rawFilterType.value,
   };
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
 }
@@ -68,6 +75,8 @@ function applyPreferences() {
   controls.filterStations.checked = preferences.filterStations ?? true;
   controls.filterAton.checked = preferences.filterAton ?? true;
   controls.filterDiagnosticsHit.checked = preferences.filterDiagnosticsHit ?? true;
+  controls.rawFilterMmsi.value = preferences.rawFilterMmsi ?? '';
+  controls.rawFilterType.value = preferences.rawFilterType ?? '';
   controls.diagnosticsPanel.classList.toggle('is-collapsed', preferences.diagnosticsCollapsed ?? false);
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
 }
@@ -206,6 +215,20 @@ function updateDiagnostics(data) {
   `).join('');
 }
 
+function updateRawPanel(data) {
+  controls.rawSummary.textContent = `${data.summary.total_messages} raw messages in ${Math.round(data.summary.retention_seconds / 3600)}h retention, ${data.summary.unique_mmsi} MMSIs`;
+  if (!data.messages.length) {
+    controls.rawList.innerHTML = '<p class="detail-empty">No raw messages for this filter.</p>';
+    return;
+  }
+  controls.rawList.innerHTML = data.messages.map(message => `
+    <div class="raw-item">
+      <div><strong>MMSI:</strong> ${message.mmsi ?? '?'} | <strong>Type:</strong> ${message.message_type ?? '?'}</div>
+      <div>${message.raw_line ? message.raw_line.slice(0, 96) : 'No raw line stored'}</div>
+    </div>
+  `).join('');
+}
+
 function updateStats(vessels) {
   const activeCount = vessels.length;
   const totalTracks = vessels.reduce((sum, vessel) => sum + (vessel.track_points || 0), 0);
@@ -270,15 +293,30 @@ function bindMarker(marker, vessel) {
   });
 }
 
+function rawQueryParams() {
+  const params = new URLSearchParams();
+  params.set('limit', '12');
+  if (controls.rawFilterMmsi.value.trim()) {
+    params.set('mmsi', controls.rawFilterMmsi.value.trim());
+  }
+  if (controls.rawFilterType.value.trim()) {
+    params.set('message_type', controls.rawFilterType.value.trim());
+  }
+  return params.toString();
+}
+
 async function refresh() {
   const trackLimit = Number(controls.trackLimit.value);
-  const [vesselsRes, diagnosticsRes] = await Promise.all([
+  const [vesselsRes, diagnosticsRes, rawRes] = await Promise.all([
     fetch(`/ships?track_limit=${trackLimit}`),
     fetch('/api/diagnostics?limit=8'),
+    fetch(`/api/raw-messages?${rawQueryParams()}`),
   ]);
   const allVessels = await vesselsRes.json();
   const diagnostics = await diagnosticsRes.json();
+  const rawData = await rawRes.json();
   updateDiagnostics(diagnostics);
+  updateRawPanel(rawData);
   const vessels = allVessels.filter(passesFilters);
   const visible = new Set();
   updateStats(vessels);
@@ -344,6 +382,10 @@ controls.diagnosticsToggle.addEventListener('click', () => {
   controls.diagnosticsPanel.classList.toggle('is-collapsed');
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
   savePreferences();
+});
+controls.rawRefresh.addEventListener('click', () => {
+  savePreferences();
+  refresh();
 });
 controls.detailClose.addEventListener('click', () => {
   selectedMmsi = null;

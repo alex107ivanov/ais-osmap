@@ -5,7 +5,7 @@ import time
 from flask import Flask, jsonify, render_template, request
 from pyais import decode
 
-from storage import AISStorage, DEFAULT_TTL_SECONDS, DEFAULT_TRACK_POINT_LIMIT
+from storage import AISStorage, DEFAULT_TTL_SECONDS, DEFAULT_TRACK_POINT_LIMIT, DEFAULT_RAW_RETENTION_SECONDS
 
 UDP_HOST = os.getenv("AIS_UDP_HOST", "127.0.0.1")
 UDP_PORT = int(os.getenv("AIS_UDP_PORT", "10110"))
@@ -14,9 +14,10 @@ WEB_PORT = int(os.getenv("AIS_WEB_PORT", "8080"))
 DATA_TTL_SECONDS = int(os.getenv("AIS_DATA_TTL_SECONDS", str(DEFAULT_TTL_SECONDS)))
 DB_PATH = os.getenv("AIS_DB_PATH", "ais_data.sqlite3")
 TRACK_POINT_LIMIT = int(os.getenv("AIS_TRACK_POINT_LIMIT", str(DEFAULT_TRACK_POINT_LIMIT)))
+RAW_RETENTION_SECONDS = int(os.getenv("AIS_RAW_RETENTION_SECONDS", str(DEFAULT_RAW_RETENTION_SECONDS)))
 
 fragments = {}
-storage = AISStorage(DB_PATH, ttl_seconds=DATA_TTL_SECONDS)
+storage = AISStorage(DB_PATH, ttl_seconds=DATA_TTL_SECONDS, raw_retention_seconds=RAW_RETENTION_SECONDS)
 startup_cleanup = storage.purge_invalid_coordinates()
 app_started_at = time.time()
 
@@ -144,6 +145,7 @@ def health():
             "db_path": DB_PATH,
             "ttl_seconds": DATA_TTL_SECONDS,
             "startup_cleanup": startup_cleanup,
+            "raw_retention_seconds": RAW_RETENTION_SECONDS,
         }
     )
 
@@ -171,6 +173,19 @@ def diagnostics():
         {
             "summary": storage.get_diagnostics_summary(),
             "messages": storage.get_recent_diagnostics(limit=limit),
+        }
+    )
+
+
+@app.route("/api/raw-messages")
+def raw_messages():
+    limit = request.args.get("limit", default=50, type=int)
+    mmsi = request.args.get("mmsi", default=None, type=int)
+    message_type = request.args.get("message_type", default=None, type=int)
+    return jsonify(
+        {
+            "summary": storage.get_raw_message_summary(),
+            "messages": storage.get_recent_raw_messages(limit=limit, mmsi=mmsi, message_type=message_type),
         }
     )
 
@@ -229,6 +244,8 @@ def handle_nmea(line: str):
             return
 
         seen_at = time.time()
+        message_type = data.get("msg_type") or data.get("type")
+        storage.record_raw_message(line, data, mmsi=mmsi, message_type=message_type, created_at=seen_at)
         static_fields = extract_static_fields(data)
         if static_fields:
             if is_aid_to_navigation(data):
@@ -237,7 +254,6 @@ def handle_nmea(line: str):
 
         lat = data.get("lat")
         lon = data.get("lon")
-        message_type = data.get("msg_type") or data.get("type")
         if is_valid_coordinate(lat, lon):
             common_kwargs = {
                 "nav_status": data.get("status"),

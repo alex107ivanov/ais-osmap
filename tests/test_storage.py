@@ -56,6 +56,45 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["track_points"] == 1
 
 
+def test_record_and_query_raw_messages(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60, raw_retention_seconds=3600)
+    storage.record_raw_message(
+        raw_line="!AIVDM,1,1,,A,stub,0*00",
+        payload={"mmsi": 2130200, "type": 5},
+        mmsi=2130200,
+        message_type=5,
+        created_at=1000,
+    )
+    storage.record_raw_message(
+        raw_line="!AIVDM,1,1,,A,stub2,0*00",
+        payload={"mmsi": 2130201, "type": 4},
+        mmsi=2130201,
+        message_type=4,
+        created_at=1010,
+    )
+
+    summary = storage.get_raw_message_summary(now=1015)
+    messages = storage.get_recent_raw_messages(limit=10, mmsi=2130200)
+
+    assert summary["total_messages"] >= 2
+    assert messages[0]["mmsi"] == 2130200
+    assert messages[0]["message_type"] == 5
+
+
+def test_purge_old_raw_messages(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60, raw_retention_seconds=60)
+    storage.record_raw_message("a", {"mmsi": 1}, mmsi=1, message_type=1, created_at=1000)
+    assert len(storage.get_recent_raw_messages(limit=10)) == 1
+    storage.record_raw_message("b", {"mmsi": 2}, mmsi=2, message_type=1, created_at=1100)
+
+    deleted = storage.purge_old_raw_messages(now=1101)
+    messages = storage.get_recent_raw_messages(limit=10)
+
+    assert deleted == 0
+    assert len(messages) == 1
+    assert messages[0]["mmsi"] == 2
+
+
 def test_record_and_fetch_diagnostics(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
     storage.record_diagnostic_message(
