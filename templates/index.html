@@ -27,6 +27,25 @@
     <input id="track-limit" type="range" min="2" max="200" step="1" value="50">
     <output id="track-limit-value">50</output>
   </label>
+  <div class="filter-block">
+    <span class="filter-title">Show target kinds</span>
+    <label class="control-row control-row--compact">
+      <span>Vessels</span>
+      <input id="filter-vessels" type="checkbox" checked>
+    </label>
+    <label class="control-row control-row--compact">
+      <span>Stations</span>
+      <input id="filter-stations" type="checkbox" checked>
+    </label>
+    <label class="control-row control-row--compact">
+      <span>Aids to navigation</span>
+      <input id="filter-aton" type="checkbox" checked>
+    </label>
+    <label class="control-row control-row--compact">
+      <span>Diagnostics-hit</span>
+      <input id="filter-diagnostics-hit" type="checkbox" checked>
+    </label>
+  </div>
 </div>
 <div id="detail-panel" class="detail-panel">
   <button id="detail-close" class="detail-close" type="button" aria-label="Close details">&times;</button>
@@ -37,7 +56,10 @@
   </div>
 </div>
 <div id="diagnostics-panel" class="diagnostics-panel">
-  <h2>Diagnostics</h2>
+  <div class="diagnostics-header">
+    <h2>Diagnostics</h2>
+    <button id="diagnostics-toggle" class="diagnostics-toggle" type="button" aria-label="Collapse diagnostics">Hide</button>
+  </div>
   <p id="diagnostics-summary" class="detail-subtitle">No diagnostics loaded yet.</p>
   <div id="diagnostics-list" class="diagnostics-list">
     <p class="detail-empty">Waiting for diagnostics data.</p>

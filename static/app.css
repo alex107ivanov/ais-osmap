@@ -59,6 +59,51 @@ body { font-family: Georgia, "Times New Roman", serif; }
   gap: 8px;
 }
 
+.filter-block {
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(31, 53, 70, 0.08);
+}
+
+.filter-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.control-row--compact {
+  margin: 6px 0;
+}
+
+.diagnostics-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.diagnostics-toggle {
+  border: 1px solid rgba(31, 53, 70, 0.12);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.72);
+  color: var(--accent-deep);
+  padding: 6px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.diagnostics-panel.is-collapsed .diagnostics-list,
+.diagnostics-panel.is-collapsed .detail-subtitle {
+  display: none;
+}
+
+.diagnostics-panel.is-collapsed {
+  max-height: none;
+}
+
 .diagnostics-item {
   padding: 10px 12px;
   border-radius: 12px;

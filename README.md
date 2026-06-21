@@ -127,5 +127,12 @@ The map overlay includes:
 - a vessel detail panel opened by clicking a marker
 - a small live stats strip for active vessels and retained tracks
 - a diagnostics panel showing recent invalid or special-case AIS events
+- target-kind filters for vessels, stations, aids to navigation, and diagnostics-hit MMSIs
 
 The app stores the main map toggles in `localStorage`, so your preferred viewing mode survives page reloads.
+
+## Raw data retention
+Right now the app does retain some raw AIS material, but only for diagnostics events, not for every message.
+Specifically, `diagnostics_messages` stores the raw NMEA line and decoded payload JSON for recent invalid or special-case events.
+That means we can already analyze strange traffic like invalid coordinates or stationary infrastructure behavior for a short rolling window.
+If you want, the next step can be adding a separate TTL-backed raw message table for all decoded traffic, not just diagnostics-triggering messages.

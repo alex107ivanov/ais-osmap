@@ -225,3 +225,15 @@ def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):
     vessels = storage.get_recent_vessels(include_tracks=True)
 
     assert vessels == []
+
+
+def test_static_assets_include_filters_and_diagnostics_toggle():
+    app_js = open('static/app.js', 'r', encoding='utf-8').read()
+    template = open('templates/index.html', 'r', encoding='utf-8').read()
+
+    assert 'filter-vessels' in template
+    assert 'filter-stations' in template
+    assert 'filter-aton' in template
+    assert 'filter-diagnostics-hit' in template
+    assert 'diagnostics-toggle' in template
+    assert 'passesFilters' in app_js

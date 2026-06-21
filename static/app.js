@@ -9,6 +9,7 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 const markers = {};
 const tracks = {};
 let selectedMmsi = null;
+let diagnosticsHitMmsis = new Set();
 let markerLayer = L.markerClusterGroup({ disableClusteringAtZoom: 11 });
 map.addLayer(markerLayer);
 
@@ -17,11 +18,17 @@ const controls = {
   showClusters: document.getElementById('toggle-clusters'),
   trackLimit: document.getElementById('track-limit'),
   trackLimitValue: document.getElementById('track-limit-value'),
+  filterVessels: document.getElementById('filter-vessels'),
+  filterStations: document.getElementById('filter-stations'),
+  filterAton: document.getElementById('filter-aton'),
+  filterDiagnosticsHit: document.getElementById('filter-diagnostics-hit'),
   detailPanel: document.getElementById('detail-panel'),
   detailTitle: document.getElementById('detail-title'),
   detailSubtitle: document.getElementById('detail-subtitle'),
   detailContent: document.getElementById('detail-content'),
   detailClose: document.getElementById('detail-close'),
+  diagnosticsPanel: document.getElementById('diagnostics-panel'),
+  diagnosticsToggle: document.getElementById('diagnostics-toggle'),
   diagnosticsSummary: document.getElementById('diagnostics-summary'),
   diagnosticsList: document.getElementById('diagnostics-list'),
   statsActive: document.getElementById('stats-active'),
@@ -42,6 +49,11 @@ function savePreferences() {
     showTracks: controls.showTracks.checked,
     showClusters: controls.showClusters.checked,
     trackLimit: Number(controls.trackLimit.value),
+    filterVessels: controls.filterVessels.checked,
+    filterStations: controls.filterStations.checked,
+    filterAton: controls.filterAton.checked,
+    filterDiagnosticsHit: controls.filterDiagnosticsHit.checked,
+    diagnosticsCollapsed: controls.diagnosticsPanel.classList.contains('is-collapsed'),
   };
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
 }
@@ -52,6 +64,39 @@ function applyPreferences() {
   controls.showClusters.checked = preferences.showClusters ?? true;
   controls.trackLimit.value = String(preferences.trackLimit ?? DEFAULT_TRACK_LIMIT);
   controls.trackLimitValue.textContent = controls.trackLimit.value;
+  controls.filterVessels.checked = preferences.filterVessels ?? true;
+  controls.filterStations.checked = preferences.filterStations ?? true;
+  controls.filterAton.checked = preferences.filterAton ?? true;
+  controls.filterDiagnosticsHit.checked = preferences.filterDiagnosticsHit ?? true;
+  controls.diagnosticsPanel.classList.toggle('is-collapsed', preferences.diagnosticsCollapsed ?? false);
+  controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
+}
+
+function vesselKind(vessel) {
+  if (vessel.is_aid_to_navigation) {
+    return 'aton';
+  }
+  if (vessel.message_type === 4) {
+    return 'station';
+  }
+  return 'vessel';
+}
+
+function passesFilters(vessel) {
+  const kind = vesselKind(vessel);
+  if (kind === 'vessel' && !controls.filterVessels.checked) {
+    return false;
+  }
+  if (kind === 'station' && !controls.filterStations.checked) {
+    return false;
+  }
+  if (kind === 'aton' && !controls.filterAton.checked) {
+    return false;
+  }
+  if (diagnosticsHitMmsis.has(vessel.mmsi) && !controls.filterDiagnosticsHit.checked) {
+    return false;
+  }
+  return true;
 }
 
 function markerClass(vessel) {
@@ -145,6 +190,7 @@ function renderDetailPanel(vessel) {
 }
 
 function updateDiagnostics(data) {
+  diagnosticsHitMmsis = new Set(data.messages.map(message => message.mmsi).filter(Boolean));
   controls.diagnosticsSummary.textContent = `${data.summary.total_messages} stored diagnostics, ${data.summary.invalid_coordinates} invalid coordinates, ${data.summary.stationary_messages} stationary reports`;
   if (!data.messages.length) {
     controls.diagnosticsList.innerHTML = '<p class="detail-empty">No recent diagnostics.</p>';
@@ -195,7 +241,7 @@ function syncTrack(vessel) {
   const shouldShow = controls.showTracks.checked;
   const latlngs = getLimitedTrack(vessel.track).map(point => [point.lat, point.lon]);
 
-  if (!shouldShow || vessel.is_aid_to_navigation || latlngs.length <= 1) {
+  if (!shouldShow || vessel.is_aid_to_navigation || !passesFilters(vessel) || latlngs.length <= 1) {
     if (tracks[vessel.mmsi]) {
       map.removeLayer(tracks[vessel.mmsi]);
       delete tracks[vessel.mmsi];
@@ -230,11 +276,12 @@ async function refresh() {
     fetch(`/ships?track_limit=${trackLimit}`),
     fetch('/api/diagnostics?limit=8'),
   ]);
-  const vessels = await vesselsRes.json();
+  const allVessels = await vesselsRes.json();
   const diagnostics = await diagnosticsRes.json();
+  updateDiagnostics(diagnostics);
+  const vessels = allVessels.filter(passesFilters);
   const visible = new Set();
   updateStats(vessels);
-  updateDiagnostics(diagnostics);
 
   for (const vessel of vessels) {
     visible.add(String(vessel.mmsi));
@@ -286,6 +333,17 @@ controls.trackLimit.addEventListener('input', () => {
   controls.trackLimitValue.textContent = controls.trackLimit.value;
   savePreferences();
   refresh();
+});
+for (const filterControl of [controls.filterVessels, controls.filterStations, controls.filterAton, controls.filterDiagnosticsHit]) {
+  filterControl.addEventListener('change', () => {
+    savePreferences();
+    refresh();
+  });
+}
+controls.diagnosticsToggle.addEventListener('click', () => {
+  controls.diagnosticsPanel.classList.toggle('is-collapsed');
+  controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
+  savePreferences();
 });
 controls.detailClose.addEventListener('click', () => {
   selectedMmsi = null;
