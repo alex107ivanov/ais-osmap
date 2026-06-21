@@ -151,3 +151,15 @@ The app stores the main map toggles in `localStorage`, so your preferred viewing
 ## Raw timeline
 The raw explorer now adds message-type labels such as `Position report A`, `Base station report`, and `Static and voyage data`.
 It also shows a compact per-MMSI timeline of recent message types, which makes it easier to spot targets that alternate between static, position, and infrastructure-style traffic.
+
+## Current live feed findings
+From the current retained raw archive, your feed is carrying more than just speed and coordinates:
+- `type 4` is currently the dominant traffic in the archive, mostly from `mmsi=2130100` and `mmsi=2130201`, and it includes full UTC-like timing fields (`year`, `month`, `day`, `hour`, `minute`, `second`), `epfd`, `accuracy`, `raim`, and `radio`
+- `type 5` is present for `mmsi=2130200` and carries static voyage fields such as `shipname=VTS BATUMI`, `ship_type`, `imo`, dimensions (`to_bow`, `to_stern`, `to_port`, `to_starboard`), `draught`, `destination`, and ETA fragments
+- `type 20` is present for `mmsi=2130100` and carries data-link slot-management fields like `offset1`, `number1`, `timeout1`, and `increment1`
+- the archive also contains `type 1` and `type 3` position-style traffic
+
+So there is definitely more useful AIS information in the feed than just lat/lon/speed. The next good candidates to expose in the UI are:
+- ETA/draught/dimensions for `type 5`
+- base-station time fields and `radio` for `type 4`
+- slot-management diagnostics for `type 20`

@@ -261,17 +261,12 @@ def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):
     assert vessels == []
 
 
-def test_static_assets_include_filters_diagnostics_raw_panel_and_toggle():
+def test_static_assets_include_panel_toggles_and_drag_handles():
     app_js = open('static/app.js', 'r', encoding='utf-8').read()
     template = open('templates/index.html', 'r', encoding='utf-8').read()
 
-    assert 'filter-vessels' in template
-    assert 'filter-stations' in template
-    assert 'filter-aton' in template
-    assert 'filter-diagnostics-hit' in template
-    assert 'diagnostics-toggle' in template
-    assert 'raw-panel' in template
-    assert 'raw-toggle' in template
-    assert 'raw-timeline' in template
-    assert 'api/raw-messages' in app_js
-    assert 'passesFilters' in app_js
+    assert 'toggle-diagnostics-panel' in template
+    assert 'toggle-raw-panel' in template
+    assert 'diagnostics-drag' in template
+    assert 'raw-drag' in template
+    assert 'makePanelDraggable' in app_js

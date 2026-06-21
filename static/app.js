@@ -18,6 +18,8 @@ const controls = {
   showClusters: document.getElementById('toggle-clusters'),
   trackLimit: document.getElementById('track-limit'),
   trackLimitValue: document.getElementById('track-limit-value'),
+  toggleDiagnosticsPanel: document.getElementById('toggle-diagnostics-panel'),
+  toggleRawPanel: document.getElementById('toggle-raw-panel'),
   filterVessels: document.getElementById('filter-vessels'),
   filterStations: document.getElementById('filter-stations'),
   filterAton: document.getElementById('filter-aton'),
@@ -28,10 +30,12 @@ const controls = {
   detailContent: document.getElementById('detail-content'),
   detailClose: document.getElementById('detail-close'),
   diagnosticsPanel: document.getElementById('diagnostics-panel'),
+  diagnosticsDrag: document.getElementById('diagnostics-drag'),
   diagnosticsToggle: document.getElementById('diagnostics-toggle'),
   diagnosticsSummary: document.getElementById('diagnostics-summary'),
   diagnosticsList: document.getElementById('diagnostics-list'),
   rawPanel: document.getElementById('raw-panel'),
+  rawDrag: document.getElementById('raw-drag'),
   rawToggle: document.getElementById('raw-toggle'),
   rawSummary: document.getElementById('raw-summary'),
   rawTimeline: document.getElementById('raw-timeline'),
@@ -57,6 +61,8 @@ function savePreferences() {
     showTracks: controls.showTracks.checked,
     showClusters: controls.showClusters.checked,
     trackLimit: Number(controls.trackLimit.value),
+    showDiagnosticsPanel: controls.toggleDiagnosticsPanel.checked,
+    showRawPanel: controls.toggleRawPanel.checked,
     filterVessels: controls.filterVessels.checked,
     filterStations: controls.filterStations.checked,
     filterAton: controls.filterAton.checked,
@@ -65,8 +71,31 @@ function savePreferences() {
     rawCollapsed: controls.rawPanel.classList.contains('is-collapsed'),
     rawFilterMmsi: controls.rawFilterMmsi.value,
     rawFilterType: controls.rawFilterType.value,
+    diagnosticsPanelPos: {
+      left: controls.diagnosticsPanel.style.left,
+      top: controls.diagnosticsPanel.style.top,
+      right: controls.diagnosticsPanel.style.right,
+      bottom: controls.diagnosticsPanel.style.bottom,
+    },
+    rawPanelPos: {
+      left: controls.rawPanel.style.left,
+      top: controls.rawPanel.style.top,
+      right: controls.rawPanel.style.right,
+      bottom: controls.rawPanel.style.bottom,
+    },
   };
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+}
+
+function applyPanelPosition(element, position) {
+  if (!position) {
+    return;
+  }
+  for (const key of ['left', 'top', 'right', 'bottom']) {
+    if (position[key]) {
+      element.style[key] = position[key];
+    }
+  }
 }
 
 function applyPreferences() {
@@ -75,6 +104,8 @@ function applyPreferences() {
   controls.showClusters.checked = preferences.showClusters ?? true;
   controls.trackLimit.value = String(preferences.trackLimit ?? DEFAULT_TRACK_LIMIT);
   controls.trackLimitValue.textContent = controls.trackLimit.value;
+  controls.toggleDiagnosticsPanel.checked = preferences.showDiagnosticsPanel ?? true;
+  controls.toggleRawPanel.checked = preferences.showRawPanel ?? true;
   controls.filterVessels.checked = preferences.filterVessels ?? true;
   controls.filterStations.checked = preferences.filterStations ?? true;
   controls.filterAton.checked = preferences.filterAton ?? true;
@@ -83,8 +114,45 @@ function applyPreferences() {
   controls.rawFilterType.value = preferences.rawFilterType ?? '';
   controls.diagnosticsPanel.classList.toggle('is-collapsed', preferences.diagnosticsCollapsed ?? false);
   controls.rawPanel.classList.toggle('is-collapsed', preferences.rawCollapsed ?? false);
+  controls.diagnosticsPanel.classList.toggle('is-hidden', !(preferences.showDiagnosticsPanel ?? true));
+  controls.rawPanel.classList.toggle('is-hidden', !(preferences.showRawPanel ?? true));
+  applyPanelPosition(controls.diagnosticsPanel, preferences.diagnosticsPanelPos);
+  applyPanelPosition(controls.rawPanel, preferences.rawPanelPos);
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
   controls.rawToggle.textContent = controls.rawPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
+}
+
+function makePanelDraggable(panel, handle) {
+  let dragging = false;
+  let offsetX = 0;
+  let offsetY = 0;
+
+  handle.addEventListener('mousedown', event => {
+    dragging = true;
+    const rect = panel.getBoundingClientRect();
+    offsetX = event.clientX - rect.left;
+    offsetY = event.clientY - rect.top;
+    panel.style.left = `${rect.left}px`;
+    panel.style.top = `${rect.top}px`;
+    panel.style.right = 'auto';
+    panel.style.bottom = 'auto';
+  });
+
+  window.addEventListener('mousemove', event => {
+    if (!dragging) {
+      return;
+    }
+    panel.style.left = `${event.clientX - offsetX}px`;
+    panel.style.top = `${event.clientY - offsetY}px`;
+  });
+
+  window.addEventListener('mouseup', () => {
+    if (!dragging) {
+      return;
+    }
+    dragging = false;
+    savePreferences();
+  });
 }
 
 function vesselKind(vessel) {
@@ -378,6 +446,8 @@ async function refresh() {
 }
 
 applyPreferences();
+makePanelDraggable(controls.diagnosticsPanel, controls.diagnosticsDrag);
+makePanelDraggable(controls.rawPanel, controls.rawDrag);
 rebuildMarkerLayer();
 controls.showTracks.addEventListener('change', () => {
   savePreferences();
@@ -392,6 +462,14 @@ controls.trackLimit.addEventListener('input', () => {
   controls.trackLimitValue.textContent = controls.trackLimit.value;
   savePreferences();
   refresh();
+});
+controls.toggleDiagnosticsPanel.addEventListener('change', () => {
+  controls.diagnosticsPanel.classList.toggle('is-hidden', !controls.toggleDiagnosticsPanel.checked);
+  savePreferences();
+});
+controls.toggleRawPanel.addEventListener('change', () => {
+  controls.rawPanel.classList.toggle('is-hidden', !controls.toggleRawPanel.checked);
+  savePreferences();
 });
 for (const filterControl of [controls.filterVessels, controls.filterStations, controls.filterAton, controls.filterDiagnosticsHit]) {
   filterControl.addEventListener('change', () => {
