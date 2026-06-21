@@ -31,11 +31,11 @@
     <span class="filter-title">Panels</span>
     <label class="control-row control-row--compact">
       <span>Diagnostics panel</span>
-      <input id="toggle-diagnostics-panel" type="checkbox" checked>
+      <input id="toggle-diagnostics-panel" type="checkbox">
     </label>
     <label class="control-row control-row--compact">
       <span>Raw feed panel</span>
-      <input id="toggle-raw-panel" type="checkbox" checked>
+      <input id="toggle-raw-panel" type="checkbox">
     </label>
   </div>
   <div class="filter-block">
@@ -66,7 +66,7 @@
     <p class="detail-empty">Waiting for a vessel selection.</p>
   </div>
 </div>
-<div id="diagnostics-panel" class="diagnostics-panel draggable-panel">
+<div id="diagnostics-panel" class="diagnostics-panel draggable-panel is-hidden">
   <div id="diagnostics-drag" class="diagnostics-header panel-drag-handle">
     <h2>Diagnostics</h2>
     <button id="diagnostics-toggle" class="diagnostics-toggle" type="button" aria-label="Collapse diagnostics">Hide</button>
@@ -76,7 +76,7 @@
     <p class="detail-empty">Waiting for diagnostics data.</p>
   </div>
 </div>
-<div id="raw-panel" class="raw-panel draggable-panel">
+<div id="raw-panel" class="raw-panel draggable-panel is-hidden">
   <div id="raw-drag" class="diagnostics-header panel-drag-handle">
     <h2>Raw Feed</h2>
     <button id="raw-toggle" class="diagnostics-toggle" type="button" aria-label="Collapse raw feed">Hide</button>

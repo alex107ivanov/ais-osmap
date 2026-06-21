@@ -104,8 +104,8 @@ function applyPreferences() {
   controls.showClusters.checked = preferences.showClusters ?? true;
   controls.trackLimit.value = String(preferences.trackLimit ?? DEFAULT_TRACK_LIMIT);
   controls.trackLimitValue.textContent = controls.trackLimit.value;
-  controls.toggleDiagnosticsPanel.checked = preferences.showDiagnosticsPanel ?? true;
-  controls.toggleRawPanel.checked = preferences.showRawPanel ?? true;
+  controls.toggleDiagnosticsPanel.checked = preferences.showDiagnosticsPanel ?? false;
+  controls.toggleRawPanel.checked = preferences.showRawPanel ?? false;
   controls.filterVessels.checked = preferences.filterVessels ?? true;
   controls.filterStations.checked = preferences.filterStations ?? true;
   controls.filterAton.checked = preferences.filterAton ?? true;
@@ -114,8 +114,8 @@ function applyPreferences() {
   controls.rawFilterType.value = preferences.rawFilterType ?? '';
   controls.diagnosticsPanel.classList.toggle('is-collapsed', preferences.diagnosticsCollapsed ?? false);
   controls.rawPanel.classList.toggle('is-collapsed', preferences.rawCollapsed ?? false);
-  controls.diagnosticsPanel.classList.toggle('is-hidden', !(preferences.showDiagnosticsPanel ?? true));
-  controls.rawPanel.classList.toggle('is-hidden', !(preferences.showRawPanel ?? true));
+  controls.diagnosticsPanel.classList.toggle('is-hidden', !(preferences.showDiagnosticsPanel ?? false));
+  controls.rawPanel.classList.toggle('is-hidden', !(preferences.showRawPanel ?? false));
   applyPanelPosition(controls.diagnosticsPanel, preferences.diagnosticsPanelPos);
   applyPanelPosition(controls.rawPanel, preferences.rawPanelPos);
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
@@ -263,6 +263,11 @@ function renderDetailPanel(vessel) {
       <li><strong>Message:</strong> ${formatValue(vessel.message_type_label || vessel.message_type)}</li>
       <li><strong>Nav status:</strong> ${formatValue(vessel.nav_status_text || vessel.status_text)}</li>
       <li><strong>Position source:</strong> ${formatValue(vessel.epfd_text)}</li>
+      <li><strong>Report time:</strong> ${formatValue(vessel.report_time_label)}</li>
+      <li><strong>Radio:</strong> ${formatValue(vessel.radio)}</li>
+      <li><strong>Draught:</strong> ${formatValue(vessel.draught, ' m')}</li>
+      <li><strong>ETA:</strong> ${formatValue(vessel.eta_label)}</li>
+      <li><strong>Dimensions:</strong> ${formatValue(vessel.dimensions_label)}</li>
       <li><strong>Accuracy:</strong> ${vessel.accuracy === null || vessel.accuracy === undefined ? '?' : (vessel.accuracy ? 'High' : 'Low')}</li>
       <li><strong>RAIM:</strong> ${vessel.raim === null || vessel.raim === undefined ? '?' : (vessel.raim ? 'On' : 'Off')}</li>
       <li><strong>Call sign:</strong> ${formatValue(vessel.callsign)}</li>
@@ -303,6 +308,14 @@ function renderRawTimeline(timeline) {
   `).join('');
 }
 
+function type20DetailsHtml(details) {
+  const entries = Object.entries(details || {});
+  if (!entries.length) {
+    return '';
+  }
+  return `<div>${entries.map(([key, value]) => `<span class="raw-type-chip">${key}: ${value}</span>`).join('')}</div>`;
+}
+
 function updateRawPanel(data) {
   controls.rawSummary.textContent = `${data.summary.total_messages} raw messages in ${Math.round(data.summary.retention_seconds / 3600)}h retention, ${data.summary.unique_mmsi} MMSIs`;
   renderRawTimeline(data.timeline || []);
@@ -314,6 +327,7 @@ function updateRawPanel(data) {
     <div class="raw-item">
       <div><strong>MMSI:</strong> ${message.mmsi ?? '?'} | <strong>${message.message_type_label || message.message_type || '?'}</strong></div>
       <div>${message.raw_line ? message.raw_line.slice(0, 96) : 'No raw line stored'}</div>
+      ${message.message_type === 20 ? type20DetailsHtml(message.type20_details) : ''}
     </div>
   `).join('');
 }
