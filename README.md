@@ -9,14 +9,16 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - SQLite-backed persistence for current state and recent history
 - 24-hour TTL cleanup for stale vessel state and tracks
 - Batched track delivery in the `/ships` response
+- Server-side track thinning to keep payloads lighter
+- Marker clustering for dense vessel areas
+- Vessel detail panel with live stats and metadata
 - Basic test suite and GitHub Actions CI
 - Simple `Makefile` for local setup and test commands
 - Docker and Compose support for reproducible local runs
-- Map controls for track visibility and point density
 
 ## Architecture
 - `ais_map.py` runs the UDP listener, Flask web app, and AIS message handling.
-- `storage.py` owns SQLite schema, upserts, TTL cleanup, and track queries.
+- `storage.py` owns SQLite schema, upserts, TTL cleanup, track thinning, and track queries.
 - `tests/` covers storage behavior and parser/update flows.
 - `Makefile` provides local setup and test shortcuts.
 - `Dockerfile` and `docker-compose.yml` provide containerized local runtime.
@@ -68,6 +70,7 @@ Environment variables:
 - `AIS_WEB_PORT`
 - `AIS_DB_PATH`
 - `AIS_DATA_TTL_SECONDS`
+- `AIS_TRACK_POINT_LIMIT`
 
 ## Persistence model
 SQLite stores three kinds of data:
@@ -77,14 +80,18 @@ SQLite stores three kinds of data:
 
 Data retention uses a TTL, defaulting to 24 hours. Expired rows are purged during normal ingest and read activity.
 
-## Tests
-```bash
-make test
-```
+Track payloads are thinned server-side before they are returned to the browser. This keeps long-running sessions responsive while preserving the first and last known points.
 
 ## UI controls
 The map overlay includes:
 - a track visibility toggle
+- a marker clustering toggle
 - a slider for limiting how many recent points are drawn per vessel
+- a vessel detail panel opened by clicking a marker
 
 These controls help reduce clutter when many moving objects are active.
+
+## Tests
+```bash
+make test
+```

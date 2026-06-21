@@ -23,6 +23,7 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["lon"] == 42.2
     assert vessels[0]["age"] == 10
     assert len(vessels[0]["track"]) == 1
+    assert vessels[0]["track_points"] == 1
 
 
 def test_track_history_keeps_multiple_points(tmp_path):
@@ -35,6 +36,18 @@ def test_track_history_keeps_multiple_points(tmp_path):
     assert len(track) == 2
     assert track[0]["lat"] == 41.0
     assert track[1]["lat"] == 41.5
+
+
+def test_track_thinning_preserves_first_and_last_points(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
+    for offset in range(10):
+        storage.upsert_position(555000555, 41.0 + offset, 42.0 + offset, None, None, None, seen_at=1000 + offset)
+
+    track = storage.get_track(555000555, now=1020, limit=4)
+
+    assert len(track) == 4
+    assert track[0]["lat"] == 41.0
+    assert track[-1]["lat"] == 50.0
 
 
 def test_purge_expired_removes_old_rows(tmp_path):

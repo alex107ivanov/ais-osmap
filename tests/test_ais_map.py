@@ -5,6 +5,7 @@ sys.modules.setdefault("flask", types.SimpleNamespace(
     Flask=lambda *_args, **_kwargs: types.SimpleNamespace(route=lambda *_a, **_k: (lambda func: func)),
     jsonify=lambda value: value,
     render_template_string=lambda value: value,
+    request=types.SimpleNamespace(args=types.SimpleNamespace(get=lambda _key, default=None, type=None: default)),
 ))
 sys.modules.setdefault("pyais", types.SimpleNamespace(decode=lambda *_args, **_kwargs: None))
 
@@ -40,9 +41,12 @@ def test_extract_static_fields_strips_values():
     }
 
 
-def test_map_html_contains_track_controls():
+def test_map_html_contains_controls_and_detail_panel():
     assert 'id="toggle-tracks"' in ais_map.HTML
+    assert 'id="toggle-clusters"' in ais_map.HTML
     assert 'id="track-limit"' in ais_map.HTML
+    assert 'id="detail-panel"' in ais_map.HTML
+    assert 'leaflet.markercluster' in ais_map.HTML
 
 
 def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
@@ -79,6 +83,7 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["destination"] == "POTI"
     assert vessels[0]["vessel_type"] == 52
     assert len(vessels[0]["track"]) == 1
+    assert vessels[0]["track_points"] == 1
 
 
 def test_handle_nmea_ignores_non_ais(monkeypatch, tmp_path):

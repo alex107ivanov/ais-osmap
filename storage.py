@@ -1,3 +1,4 @@
+import math
 import sqlite3
 import time
 from pathlib import Path
@@ -5,6 +6,7 @@ from typing import Any
 
 DB_PATH = Path("ais_data.sqlite3")
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
+DEFAULT_TRACK_POINT_LIMIT = 50
 
 
 class AISStorage:
@@ -66,6 +68,28 @@ class AISStorage:
         columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
         if column not in columns:
             conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
+
+    def _thin_track(self, points: list[dict[str, Any]], limit: int | None) -> list[dict[str, Any]]:
+        if limit is None or limit <= 0 or len(points) <= limit:
+            return points
+        if limit == 1:
+            return [points[-1]]
+
+        step = (len(points) - 1) / (limit - 1)
+        indices = [min(len(points) - 1, round(step * index)) for index in range(limit)]
+
+        thinned = []
+        seen_indices = set()
+        for index in indices:
+            if index not in seen_indices:
+                thinned.append(points[index])
+                seen_indices.add(index)
+
+        if thinned[-1] is not points[-1]:
+            thinned[-1] = points[-1]
+        if thinned[0] is not points[0]:
+            thinned[0] = points[0]
+        return thinned
 
     def purge_expired(self, now: float | None = None) -> None:
         cutoff = (now or time.time()) - self.ttl_seconds
@@ -138,7 +162,12 @@ class AISStorage:
                 (mmsi, lat, lon, speed, course, heading, timestamp),
             )
 
-    def get_recent_vessels(self, now: float | None = None, include_tracks: bool = False) -> list[dict[str, Any]]:
+    def get_recent_vessels(
+        self,
+        now: float | None = None,
+        include_tracks: bool = False,
+        track_limit: int | None = DEFAULT_TRACK_POINT_LIMIT,
+    ) -> list[dict[str, Any]]:
         current_time = now or time.time()
         cutoff = current_time - self.ttl_seconds
         with self._connect() as conn:
@@ -202,12 +231,13 @@ class AISStorage:
                 "course": row["course"],
                 "heading": row["heading"],
                 "age": current_time - row["last_seen"],
-                "track": tracks_by_mmsi.get(row["mmsi"], []) if include_tracks else None,
+                "track": self._thin_track(tracks_by_mmsi.get(row["mmsi"], []), track_limit) if include_tracks else None,
+                "track_points": len(tracks_by_mmsi.get(row["mmsi"], [])) if include_tracks else None,
             }
             for row in rows
         ]
 
-    def get_track(self, mmsi: int, now: float | None = None) -> list[dict[str, Any]]:
+    def get_track(self, mmsi: int, now: float | None = None, limit: int | None = None) -> list[dict[str, Any]]:
         cutoff = (now or time.time()) - self.ttl_seconds
         with self._connect() as conn:
             rows = conn.execute(
@@ -219,4 +249,4 @@ class AISStorage:
                 """,
                 (mmsi, cutoff),
             ).fetchall()
-        return [dict(row) for row in rows]
+        return self._thin_track([dict(row) for row in rows], limit)
