@@ -1,4 +1,3 @@
-import math
 import sqlite3
 import time
 from pathlib import Path
@@ -31,6 +30,10 @@ class AISStorage:
                     imo INTEGER,
                     destination TEXT,
                     vessel_type INTEGER,
+                    status_text TEXT,
+                    epfd INTEGER,
+                    epfd_text TEXT,
+                    aid_type INTEGER,
                     updated_at REAL NOT NULL
                 );
 
@@ -41,6 +44,13 @@ class AISStorage:
                     speed REAL,
                     course REAL,
                     heading REAL,
+                    nav_status INTEGER,
+                    nav_status_text TEXT,
+                    accuracy INTEGER,
+                    raim INTEGER,
+                    epfd INTEGER,
+                    epfd_text TEXT,
+                    message_type INTEGER,
                     is_aid_to_navigation INTEGER NOT NULL DEFAULT 0,
                     last_seen REAL NOT NULL
                 );
@@ -64,6 +74,17 @@ class AISStorage:
             self._ensure_column(conn, "vessel_static", "imo", "INTEGER")
             self._ensure_column(conn, "vessel_static", "destination", "TEXT")
             self._ensure_column(conn, "vessel_static", "vessel_type", "INTEGER")
+            self._ensure_column(conn, "vessel_static", "status_text", "TEXT")
+            self._ensure_column(conn, "vessel_static", "epfd", "INTEGER")
+            self._ensure_column(conn, "vessel_static", "epfd_text", "TEXT")
+            self._ensure_column(conn, "vessel_static", "aid_type", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "nav_status", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "nav_status_text", "TEXT")
+            self._ensure_column(conn, "vessel_positions", "accuracy", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "raim", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "epfd", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "epfd_text", "TEXT")
+            self._ensure_column(conn, "vessel_positions", "message_type", "INTEGER")
             self._ensure_column(conn, "vessel_positions", "is_aid_to_navigation", "INTEGER NOT NULL DEFAULT 0")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
@@ -93,6 +114,19 @@ class AISStorage:
             thinned[0] = points[0]
         return thinned
 
+    def purge_invalid_coordinates(self) -> dict[str, int]:
+        with self._connect() as conn:
+            invalid_track_rows = conn.execute(
+                "DELETE FROM vessel_tracks WHERE lat < -90 OR lat > 90 OR lon < -180 OR lon > 180"
+            ).rowcount
+            invalid_position_rows = conn.execute(
+                "DELETE FROM vessel_positions WHERE lat < -90 OR lat > 90 OR lon < -180 OR lon > 180"
+            ).rowcount
+        return {
+            "vessel_tracks": invalid_track_rows,
+            "vessel_positions": invalid_position_rows,
+        }
+
     def purge_expired(self, now: float | None = None) -> None:
         cutoff = (now or time.time()) - self.ttl_seconds
         with self._connect() as conn:
@@ -109,14 +143,18 @@ class AISStorage:
             conn.execute(
                 """
                 INSERT INTO vessel_static (
-                    mmsi, shipname, callsign, imo, destination, vessel_type, updated_at
-                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    mmsi, shipname, callsign, imo, destination, vessel_type, status_text, epfd, epfd_text, aid_type, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mmsi) DO UPDATE SET
                     shipname = COALESCE(excluded.shipname, vessel_static.shipname),
                     callsign = COALESCE(excluded.callsign, vessel_static.callsign),
                     imo = COALESCE(excluded.imo, vessel_static.imo),
                     destination = COALESCE(excluded.destination, vessel_static.destination),
                     vessel_type = COALESCE(excluded.vessel_type, vessel_static.vessel_type),
+                    status_text = COALESCE(excluded.status_text, vessel_static.status_text),
+                    epfd = COALESCE(excluded.epfd, vessel_static.epfd),
+                    epfd_text = COALESCE(excluded.epfd_text, vessel_static.epfd_text),
+                    aid_type = COALESCE(excluded.aid_type, vessel_static.aid_type),
                     updated_at = excluded.updated_at
                 """,
                 (
@@ -126,6 +164,10 @@ class AISStorage:
                     fields.get("imo"),
                     fields.get("destination"),
                     fields.get("ship_type") or fields.get("vessel_type"),
+                    fields.get("status_text"),
+                    fields.get("epfd"),
+                    fields.get("epfd_text"),
+                    fields.get("aid_type"),
                     timestamp,
                 ),
             )
@@ -141,23 +183,55 @@ class AISStorage:
         seen_at: float | None = None,
         is_aid_to_navigation: bool = False,
         append_track: bool = True,
+        nav_status: Any = None,
+        nav_status_text: Any = None,
+        accuracy: Any = None,
+        raim: Any = None,
+        epfd: Any = None,
+        epfd_text: Any = None,
+        message_type: Any = None,
     ) -> None:
         timestamp = seen_at or time.time()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO vessel_positions (mmsi, lat, lon, speed, course, heading, is_aid_to_navigation, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vessel_positions (
+                    mmsi, lat, lon, speed, course, heading, nav_status, nav_status_text,
+                    accuracy, raim, epfd, epfd_text, message_type, is_aid_to_navigation, last_seen
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mmsi) DO UPDATE SET
                     lat = excluded.lat,
                     lon = excluded.lon,
                     speed = excluded.speed,
                     course = excluded.course,
                     heading = excluded.heading,
+                    nav_status = excluded.nav_status,
+                    nav_status_text = excluded.nav_status_text,
+                    accuracy = excluded.accuracy,
+                    raim = excluded.raim,
+                    epfd = excluded.epfd,
+                    epfd_text = excluded.epfd_text,
+                    message_type = excluded.message_type,
                     is_aid_to_navigation = excluded.is_aid_to_navigation,
                     last_seen = excluded.last_seen
                 """,
-                (mmsi, lat, lon, speed, course, heading, int(is_aid_to_navigation), timestamp),
+                (
+                    mmsi,
+                    lat,
+                    lon,
+                    speed,
+                    course,
+                    heading,
+                    nav_status,
+                    nav_status_text,
+                    int(bool(accuracy)) if accuracy is not None else None,
+                    int(bool(raim)) if raim is not None else None,
+                    epfd,
+                    epfd_text,
+                    message_type,
+                    int(is_aid_to_navigation),
+                    timestamp,
+                ),
             )
             if append_track:
                 conn.execute(
@@ -186,11 +260,20 @@ class AISStorage:
                     s.imo,
                     s.destination,
                     s.vessel_type,
+                    s.status_text,
+                    s.aid_type,
                     p.lat,
                     p.lon,
                     p.speed,
                     p.course,
                     p.heading,
+                    p.nav_status,
+                    p.nav_status_text,
+                    p.accuracy,
+                    p.raim,
+                    p.epfd,
+                    p.epfd_text,
+                    p.message_type,
                     p.is_aid_to_navigation,
                     p.last_seen
                 FROM vessel_positions p
@@ -232,11 +315,20 @@ class AISStorage:
                 "imo": row["imo"],
                 "destination": row["destination"],
                 "vessel_type": row["vessel_type"],
+                "status_text": row["status_text"] or row["nav_status_text"],
+                "aid_type": row["aid_type"],
                 "lat": row["lat"],
                 "lon": row["lon"],
                 "speed": row["speed"],
                 "course": row["course"],
                 "heading": row["heading"],
+                "nav_status": row["nav_status"],
+                "nav_status_text": row["nav_status_text"],
+                "accuracy": bool(row["accuracy"]) if row["accuracy"] is not None else None,
+                "raim": bool(row["raim"]) if row["raim"] is not None else None,
+                "epfd": row["epfd"],
+                "epfd_text": row["epfd_text"],
+                "message_type": row["message_type"],
                 "is_aid_to_navigation": bool(row["is_aid_to_navigation"]),
                 "age": current_time - row["last_seen"],
                 "track": self._thin_track(tracks_by_mmsi.get(row["mmsi"], []), track_limit) if include_tracks else None,

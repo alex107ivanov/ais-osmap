@@ -8,6 +8,7 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - Web map with live vessel markers and tracks
 - SQLite-backed persistence for current state and recent history
 - 24-hour TTL cleanup for stale vessel state and tracks
+- Startup self-healing that purges impossible stored coordinates
 - Batched track delivery in the `/ships` response
 - Server-side track thinning to keep payloads lighter
 - Marker clustering for dense vessel areas
@@ -20,9 +21,18 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - Simple `Makefile` for local setup and test commands
 - Docker and Compose support for reproducible local runs
 
+## What we can use from `gpsdecode`
+Your sample shows several useful AIS message types and fields beyond raw position:
+- `type 1` / `type 3`: moving vessel position reports with navigational status, speed, course, heading, RAIM, and accuracy
+- `type 4`: base-station-like or stationary reports with timestamp and EPFD source; we now treat these as non-trackable stationary positions
+- `type 5`: static/voyage details like `shipname`, `callsign`, `destination`, and `shiptype`
+- `type 20`: data link management; not shown on the map yet, but useful for diagnostics later
+
+The sample also shows sentinel invalid coordinates like `lon=181.0` and `lat=91.0` for `mmsi=2130200`; the app now rejects those automatically and purges any old impossible rows on startup.
+
 ## Architecture
-- `ais_map.py` runs the UDP listener, Flask web app, API endpoints, and AIS message handling.
-- `storage.py` owns SQLite schema, upserts, TTL cleanup, track thinning, and track queries.
+- `ais_map.py` runs the UDP listener, Flask web app, API endpoints, startup cleanup, and AIS message handling.
+- `storage.py` owns SQLite schema, upserts, cleanup, track thinning, and track queries.
 - `templates/index.html` contains the page structure.
 - `static/app.css` and `static/app.js` contain the map UI styling and behavior.
 - `tests/` covers storage behavior and parser/update flows.
@@ -30,7 +40,7 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - `Dockerfile` and `docker-compose.yml` provide containerized local runtime.
 
 ## Static aids and lighthouses
-AIS Aid-to-Navigation messages, including lighthouse-like stations, are now treated as stationary objects.
+AIS Aid-to-Navigation messages, including lighthouse-like stations, are treated as stationary objects.
 They still appear on the map at their reported position, but they do not append movement tracks.
 This fixes the case where a static object looked like it had "jumped away" and only left a stale track behind.
 
@@ -84,15 +94,15 @@ Environment variables:
 - `AIS_TRACK_POINT_LIMIT`
 
 ## API
-- `GET /ships` returns active vessels with thinned recent tracks
+- `GET /ships` returns active vessels with thinned recent tracks and richer live metadata
 - `GET /ships/<mmsi>/track` returns recent track points for one vessel
-- `GET /api/health` returns status, uptime, TTL, and DB path
-- `GET /api/stats` returns active vessel count, total tracked points, max vessel age, and app uptime
+- `GET /api/health` returns status, uptime, TTL, DB path, and startup cleanup counts
+- `GET /api/stats` returns active vessel count, total tracked points, AtoN/base-station-like counts, max vessel age, and app uptime
 
 ## Persistence model
 SQLite stores three kinds of data:
-- `vessel_static`: vessel name and static metadata such as call sign, IMO, destination, and vessel type
-- `vessel_positions`: latest known position per MMSI, including whether the object is an aid to navigation
+- `vessel_static`: vessel name and static metadata such as call sign, IMO, destination, vessel type, EPFD source, status text, and AtoN type
+- `vessel_positions`: latest known position per MMSI, including whether the object is an aid to navigation, nav status, accuracy, RAIM, EPFD source, and last seen message type
 - `vessel_tracks`: append-only recent movement history per MMSI
 
 Data retention uses a TTL, defaulting to 24 hours. Expired rows are purged during normal ingest and read activity.
@@ -108,8 +118,3 @@ The map overlay includes:
 - a small live stats strip for active vessels and retained tracks
 
 The app stores the main map toggles in `localStorage`, so your preferred viewing mode survives page reloads.
-
-## Tests
-```bash
-make test
-```

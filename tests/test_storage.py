@@ -5,10 +5,34 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
     storage.upsert_static(
         123456789,
-        {"shipname": "TEST VESSEL", "callsign": "CALL", "imo": 9876543, "destination": "BATUMI", "ship_type": 70},
+        {
+            "shipname": "TEST VESSEL",
+            "callsign": "CALL",
+            "imo": 9876543,
+            "destination": "BATUMI",
+            "ship_type": 70,
+            "status_text": "Under way using engine",
+            "epfd": 3,
+            "epfd_text": "Combined GPS/GLONASS",
+        },
         seen_at=1000,
     )
-    storage.upsert_position(123456789, 41.1, 42.2, 12.3, 180, 175, seen_at=1000)
+    storage.upsert_position(
+        123456789,
+        41.1,
+        42.2,
+        12.3,
+        180,
+        175,
+        seen_at=1000,
+        nav_status=0,
+        nav_status_text="Under way using engine",
+        accuracy=True,
+        raim=False,
+        epfd=3,
+        epfd_text="Combined GPS/GLONASS",
+        message_type=1,
+    )
 
     vessels = storage.get_recent_vessels(now=1010, include_tracks=True)
 
@@ -19,6 +43,11 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["imo"] == 9876543
     assert vessels[0]["destination"] == "BATUMI"
     assert vessels[0]["vessel_type"] == 70
+    assert vessels[0]["status_text"] == "Under way using engine"
+    assert vessels[0]["epfd_text"] == "Combined GPS/GLONASS"
+    assert vessels[0]["message_type"] == 1
+    assert vessels[0]["accuracy"] is True
+    assert vessels[0]["raim"] is False
     assert vessels[0]["is_aid_to_navigation"] is False
     assert vessels[0]["lat"] == 41.1
     assert vessels[0]["lon"] == 42.2
@@ -27,15 +56,30 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["track_points"] == 1
 
 
+def test_purge_invalid_coordinates_removes_bad_rows(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
+    storage.upsert_position(1, 41.0, 42.0, None, None, None, seen_at=1000)
+    storage.upsert_position(2, 91.0, 181.0, None, None, None, seen_at=1000)
+
+    cleanup = storage.purge_invalid_coordinates()
+    vessels = storage.get_recent_vessels(now=1010, include_tracks=True)
+
+    assert cleanup["vessel_positions"] == 1
+    assert cleanup["vessel_tracks"] == 1
+    assert [v["mmsi"] for v in vessels] == [1]
+
+
 def test_static_aid_position_does_not_append_track(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
-    storage.upsert_static(993692000, {"shipname": "LIGHTHOUSE", "vessel_type": 21}, seen_at=1000)
-    storage.upsert_position(993692000, 41.0, 42.0, 0, 0, 0, seen_at=1000, is_aid_to_navigation=True, append_track=False)
+    storage.upsert_static(993692000, {"shipname": "LIGHTHOUSE", "vessel_type": 21, "aid_type": 1}, seen_at=1000)
+    storage.upsert_position(993692000, 41.0, 42.0, 0, 0, 0, seen_at=1000, is_aid_to_navigation=True, append_track=False, message_type=21)
 
     vessels = storage.get_recent_vessels(now=1010, include_tracks=True)
 
     assert len(vessels) == 1
     assert vessels[0]["is_aid_to_navigation"] is True
+    assert vessels[0]["message_type"] == 21
+    assert vessels[0]["aid_type"] == 1
     assert vessels[0]["track_points"] == 0
     assert vessels[0]["track"] == []
 

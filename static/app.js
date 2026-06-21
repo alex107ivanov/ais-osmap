@@ -58,9 +58,10 @@ function popupHtml(vessel) {
     <b>${vessel.type_icon || ''} ${vessel.name || 'Unknown vessel'}</b><br>
     MMSI: ${vessel.mmsi}<br>
     Type: ${kind}<br>
-    Call sign: ${vessel.callsign || '?'}<br>
-    IMO: ${vessel.imo ?? '?'}<br>
-    Destination: ${vessel.destination || '?'}<br>
+    Nav status: ${vessel.nav_status_text || vessel.status_text || '?'}<br>
+    Position source: ${vessel.epfd_text || '?'}<br>
+    Accuracy: ${vessel.accuracy === null || vessel.accuracy === undefined ? '?' : (vessel.accuracy ? 'High' : 'Low')}<br>
+    RAIM: ${vessel.raim === null || vessel.raim === undefined ? '?' : (vessel.raim ? 'On' : 'Off')}<br>
     SOG: ${vessel.speed ?? '?'} kn<br>
     COG: ${vessel.course ?? '?'}&deg;<br>
     Heading: ${vessel.heading ?? '?'}&deg;<br>
@@ -109,6 +110,11 @@ function renderDetailPanel(vessel) {
     </div>
     <ul class="detail-meta">
       <li><strong>Type:</strong> ${formatValue(kind)}</li>
+      <li><strong>Nav status:</strong> ${formatValue(vessel.nav_status_text || vessel.status_text)}</li>
+      <li><strong>Message type:</strong> ${formatValue(vessel.message_type)}</li>
+      <li><strong>Position source:</strong> ${formatValue(vessel.epfd_text)}</li>
+      <li><strong>Accuracy:</strong> ${vessel.accuracy === null || vessel.accuracy === undefined ? '?' : (vessel.accuracy ? 'High' : 'Low')}</li>
+      <li><strong>RAIM:</strong> ${vessel.raim === null || vessel.raim === undefined ? '?' : (vessel.raim ? 'On' : 'Off')}</li>
       <li><strong>Call sign:</strong> ${formatValue(vessel.callsign)}</li>
       <li><strong>IMO:</strong> ${formatValue(vessel.imo)}</li>
       <li><strong>Destination:</strong> ${formatValue(vessel.destination)}</li>

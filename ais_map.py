@@ -17,6 +17,7 @@ TRACK_POINT_LIMIT = int(os.getenv("AIS_TRACK_POINT_LIMIT", str(DEFAULT_TRACK_POI
 
 fragments = {}
 storage = AISStorage(DB_PATH, ttl_seconds=DATA_TTL_SECONDS)
+startup_cleanup = storage.purge_invalid_coordinates()
 app_started_at = time.time()
 
 app = Flask(__name__)
@@ -75,7 +76,7 @@ def get_vessel_type_icon(vessel_type_label: str | None) -> str:
 
 
 def is_aid_to_navigation(data: dict) -> bool:
-    vessel_type = data.get("vessel_type") or data.get("ship_type")
+    vessel_type = data.get("vessel_type") or data.get("ship_type") or data.get("shiptype")
     msg_type = data.get("msg_type") or data.get("type")
     aid_type = data.get("aid_type")
     return msg_type in AID_TO_NAVIGATION_MESSAGE_TYPES or vessel_type == 21 or aid_type is not None
@@ -142,6 +143,7 @@ def health():
             "uptime_seconds": round(time.time() - app_started_at, 3),
             "db_path": DB_PATH,
             "ttl_seconds": DATA_TTL_SECONDS,
+            "startup_cleanup": startup_cleanup,
         }
     )
 
@@ -155,6 +157,8 @@ def stats():
             "active_vessels": len(vessels),
             "tracked_points": sum(vessel.get("track_points") or 0 for vessel in vessels),
             "max_age_seconds": round(max((vessel.get("age") or 0) for vessel in vessels), 3) if vessels else 0,
+            "aid_to_navigation_count": sum(1 for vessel in vessels if vessel.get("is_aid_to_navigation")),
+            "base_station_like_count": sum(1 for vessel in vessels if vessel.get("message_type") == 4),
             "uptime_seconds": round(time.time() - app_started_at, 3),
         }
     )
@@ -162,12 +166,25 @@ def stats():
 
 def extract_static_fields(data: dict) -> dict:
     static_fields = {}
-    for field in ("shipname", "callsign", "imo", "destination", "ship_type", "vessel_type"):
+    for field in (
+        "shipname",
+        "callsign",
+        "imo",
+        "destination",
+        "ship_type",
+        "shiptype",
+        "vessel_type",
+        "status_text",
+        "epfd",
+        "epfd_text",
+        "aid_type",
+    ):
         value = data.get(field)
+        normalized_field = "ship_type" if field == "shiptype" else field
         if isinstance(value, str):
             value = value.strip() or None
         if value is not None:
-            static_fields[field] = value
+            static_fields[normalized_field] = value
     return static_fields
 
 
@@ -210,6 +227,15 @@ def handle_nmea(line: str):
         lat = data.get("lat")
         lon = data.get("lon")
         if is_valid_coordinate(lat, lon):
+            common_kwargs = {
+                "nav_status": data.get("status"),
+                "nav_status_text": data.get("status_text"),
+                "accuracy": data.get("accuracy"),
+                "raim": data.get("raim"),
+                "epfd": data.get("epfd"),
+                "epfd_text": data.get("epfd_text"),
+                "message_type": data.get("msg_type") or data.get("type"),
+            }
             if is_trackable_position(data):
                 storage.upsert_position(
                     mmsi,
@@ -220,6 +246,7 @@ def handle_nmea(line: str):
                     data.get("heading"),
                     seen_at=seen_at,
                     is_aid_to_navigation=False,
+                    **common_kwargs,
                 )
             else:
                 storage.upsert_position(
@@ -232,6 +259,7 @@ def handle_nmea(line: str):
                     seen_at=seen_at,
                     is_aid_to_navigation=is_aid_to_navigation(data),
                     append_track=False,
+                    **common_kwargs,
                 )
 
         storage.purge_expired(now=seen_at)

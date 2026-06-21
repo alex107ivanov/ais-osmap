@@ -29,6 +29,8 @@ def test_extract_static_fields_strips_values():
             "imo": 1234567,
             "destination": " BATUMI ",
             "ship_type": 60,
+            "status_text": " Under way using engine ",
+            "epfd_text": " Combined GPS/GLONASS ",
         }
     )
 
@@ -38,6 +40,8 @@ def test_extract_static_fields_strips_values():
         "imo": 1234567,
         "destination": "BATUMI",
         "ship_type": 60,
+        "status_text": "Under way using engine",
+        "epfd_text": "Combined GPS/GLONASS",
     }
 
 
@@ -61,6 +65,7 @@ def test_aid_to_navigation_detection():
     assert ais_map.is_aid_to_navigation({"msg_type": 21}) is True
     assert ais_map.is_aid_to_navigation({"aid_type": 5}) is True
     assert ais_map.is_aid_to_navigation({"vessel_type": 21}) is True
+    assert ais_map.is_aid_to_navigation({"shiptype": 21}) is True
     assert ais_map.is_aid_to_navigation({"msg_type": 1, "vessel_type": 70}) is False
 
 
@@ -72,6 +77,7 @@ def test_trackable_position_filters_stationary_objects():
 
 def test_coordinate_validation_rejects_impossible_values():
     assert ais_map.is_valid_coordinate(41.65, 41.64) is True
+    assert ais_map.is_valid_coordinate(181.0, 91.0) is False
     assert ais_map.is_valid_coordinate(2528.0, 2499.7) is False
     assert ais_map.is_valid_coordinate(None, 41.64) is False
 
@@ -97,6 +103,12 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
                 "imo": 9990001,
                 "destination": " POTI ",
                 "ship_type": 52,
+                "status": 0,
+                "status_text": "Under way using engine",
+                "accuracy": True,
+                "raim": False,
+                "epfd": 3,
+                "epfd_text": "Combined GPS/GLONASS",
                 "lat": 41.7,
                 "lon": 41.6,
                 "speed": 8.5,
@@ -116,6 +128,11 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["imo"] == 9990001
     assert vessels[0]["destination"] == "POTI"
     assert vessels[0]["vessel_type"] == 52
+    assert vessels[0]["status_text"] == "Under way using engine"
+    assert vessels[0]["epfd_text"] == "Combined GPS/GLONASS"
+    assert vessels[0]["message_type"] == 1
+    assert vessels[0]["accuracy"] is True
+    assert vessels[0]["raim"] is False
     assert vessels[0]["vessel_type_label"] == "Tug"
     assert vessels[0]["type_icon"] == "🪢"
     assert vessels[0]["is_aid_to_navigation"] is False
@@ -135,11 +152,14 @@ def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
                 "msg_type": 21,
                 "shipname": " LIGHTHOUSE ",
                 "aid_type": 1,
+                "epfd": 3,
+                "epfd_text": "Combined GPS/GLONASS",
                 "lat": 41.65,
                 "lon": 41.64,
                 "speed": 0,
                 "course": 0,
                 "heading": 0,
+                "raim": True,
             }
         ),
     )
@@ -152,6 +172,9 @@ def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
     assert vessels[0]["vessel_type"] == 21
     assert vessels[0]["vessel_type_label"] == "Aid to navigation"
     assert vessels[0]["type_icon"] == "🗼"
+    assert vessels[0]["message_type"] == 21
+    assert vessels[0]["epfd_text"] == "Combined GPS/GLONASS"
+    assert vessels[0]["raim"] is True
     assert vessels[0]["track_points"] == 0
     assert vessels[0]["track"] == []
 
@@ -177,10 +200,24 @@ def test_handle_nmea_ignores_invalid_coordinates(monkeypatch, tmp_path):
     assert storage.get_recent_vessels(include_tracks=True) == []
 
 
-def test_handle_nmea_ignores_non_ais(monkeypatch, tmp_path):
+def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
     monkeypatch.setattr(ais_map, "storage", storage)
+    monkeypatch.setattr(
+        ais_map,
+        "decode",
+        lambda *_args, **_kwargs: FakeMessage(
+            {
+                "mmsi": 2130200,
+                "msg_type": 5,
+                "shipname": " VTS BATUMI ",
+                "shiptype": 0,
+                "epfd_text": "Undefined",
+            }
+        ),
+    )
 
-    ais_map.handle_nmea("$GPGGA,ignore,this")
+    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
+    vessels = storage.get_recent_vessels(include_tracks=True)
 
-    assert storage.get_recent_vessels() == []
+    assert vessels == []
