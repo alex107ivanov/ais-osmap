@@ -12,12 +12,15 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - Server-side track thinning to keep payloads lighter
 - Marker clustering for dense vessel areas
 - Vessel detail panel with live stats and metadata
+- Vessel type labels and simple category icons
+- Saved UI preferences for track visibility, clustering, and track density
+- `/api/health` and `/api/stats` endpoints for lightweight ops visibility
 - Basic test suite and GitHub Actions CI
 - Simple `Makefile` for local setup and test commands
 - Docker and Compose support for reproducible local runs
 
 ## Architecture
-- `ais_map.py` runs the UDP listener, Flask web app, and AIS message handling.
+- `ais_map.py` runs the UDP listener, Flask web app, API endpoints, and AIS message handling.
 - `storage.py` owns SQLite schema, upserts, TTL cleanup, track thinning, and track queries.
 - `tests/` covers storage behavior and parser/update flows.
 - `Makefile` provides local setup and test shortcuts.
@@ -72,6 +75,12 @@ Environment variables:
 - `AIS_DATA_TTL_SECONDS`
 - `AIS_TRACK_POINT_LIMIT`
 
+## API
+- `GET /ships` returns active vessels with thinned recent tracks
+- `GET /ships/<mmsi>/track` returns recent track points for one vessel
+- `GET /api/health` returns status, uptime, TTL, and DB path
+- `GET /api/stats` returns active vessel count, total tracked points, max vessel age, and app uptime
+
 ## Persistence model
 SQLite stores three kinds of data:
 - `vessel_static`: vessel name and static metadata such as call sign, IMO, destination, and vessel type
@@ -88,8 +97,9 @@ The map overlay includes:
 - a marker clustering toggle
 - a slider for limiting how many recent points are drawn per vessel
 - a vessel detail panel opened by clicking a marker
+- a small live stats strip for active vessels and retained tracks
 
-These controls help reduce clutter when many moving objects are active.
+The app stores the main map toggles in `localStorage`, so your preferred viewing mode survives page reloads.
 
 ## Tests
 ```bash

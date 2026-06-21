@@ -41,11 +41,27 @@ def test_extract_static_fields_strips_values():
     }
 
 
-def test_map_html_contains_controls_and_detail_panel():
+def test_vessel_type_label_and_icon_mapping():
+    assert ais_map.get_vessel_type_label(70) == "Cargo"
+    assert ais_map.get_vessel_type_label(71) == "Cargo"
+    assert ais_map.get_vessel_type_icon("Cargo") == "📦"
+    assert ais_map.get_vessel_type_icon(None) == ""
+
+
+def test_enrich_vessel_adds_type_metadata():
+    vessel = ais_map.enrich_vessel({"mmsi": 1, "vessel_type": 52})
+
+    assert vessel["vessel_type_label"] == "Tug"
+    assert vessel["type_icon"] == "🪢"
+
+
+def test_map_html_contains_controls_stats_and_detail_panel():
     assert 'id="toggle-tracks"' in ais_map.HTML
     assert 'id="toggle-clusters"' in ais_map.HTML
     assert 'id="track-limit"' in ais_map.HTML
     assert 'id="detail-panel"' in ais_map.HTML
+    assert 'id="stats-active"' in ais_map.HTML
+    assert 'localStorage' in ais_map.HTML
     assert 'leaflet.markercluster' in ais_map.HTML
 
 
@@ -73,7 +89,7 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     )
 
     ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
-    vessels = storage.get_recent_vessels(include_tracks=True)
+    vessels = [ais_map.enrich_vessel(vessel) for vessel in storage.get_recent_vessels(include_tracks=True)]
 
     assert len(vessels) == 1
     assert vessels[0]["mmsi"] == 123456789
@@ -82,6 +98,8 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["imo"] == 9990001
     assert vessels[0]["destination"] == "POTI"
     assert vessels[0]["vessel_type"] == 52
+    assert vessels[0]["vessel_type_label"] == "Tug"
+    assert vessels[0]["type_icon"] == "🪢"
     assert len(vessels[0]["track"]) == 1
     assert vessels[0]["track_points"] == 1
 

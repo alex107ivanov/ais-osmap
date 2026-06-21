@@ -17,8 +17,41 @@ TRACK_POINT_LIMIT = int(os.getenv("AIS_TRACK_POINT_LIMIT", str(DEFAULT_TRACK_POI
 
 fragments = {}
 storage = AISStorage(DB_PATH, ttl_seconds=DATA_TTL_SECONDS)
+app_started_at = time.time()
 
 app = Flask(__name__)
+
+VESSEL_TYPE_LABELS = {
+    30: "Fishing",
+    31: "Towing",
+    32: "Towing long/wide",
+    33: "Dredging",
+    34: "Diving ops",
+    35: "Military ops",
+    36: "Sailing",
+    37: "Pleasure craft",
+    50: "Pilot vessel",
+    51: "Search and rescue",
+    52: "Tug",
+    53: "Port tender",
+    54: "Anti-pollution",
+    55: "Law enforcement",
+    58: "Medical transport",
+    60: "Passenger",
+    70: "Cargo",
+    80: "Tanker",
+}
+
+VESSEL_TYPE_ICONS = {
+    "Fishing": "🎣",
+    "Cargo": "📦",
+    "Passenger": "🧭",
+    "Tanker": "🛢",
+    "Tug": "🪢",
+    "Pleasure craft": "⛵",
+    "Sailing": "⛵",
+    "Military ops": "🛡",
+}
 
 HTML = """
 <!doctype html>
@@ -48,7 +81,8 @@ HTML = """
     body { font-family: Georgia, "Times New Roman", serif; }
 
     .control-panel,
-    .detail-panel {
+    .detail-panel,
+    .stats-strip {
       position: absolute;
       z-index: 1000;
       border: 1px solid var(--panel-border);
@@ -72,6 +106,33 @@ HTML = """
       padding: 16px;
       display: none;
       background: var(--surface-strong);
+    }
+
+    .stats-strip {
+      left: 14px;
+      bottom: 14px;
+      display: flex;
+      gap: 10px;
+      padding: 10px 12px;
+    }
+
+    .stats-chip {
+      min-width: 72px;
+    }
+
+    .stats-chip-label {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-muted);
+    }
+
+    .stats-chip-value {
+      display: block;
+      margin-top: 3px;
+      font-size: 18px;
+      color: var(--text-main);
     }
 
     .detail-panel.is-visible {
@@ -194,7 +255,14 @@ HTML = """
       .detail-panel {
         top: auto;
         right: 10px;
-        bottom: 10px;
+        bottom: 72px;
+      }
+
+      .stats-strip {
+        left: 10px;
+        right: 10px;
+        width: auto;
+        justify-content: space-between;
       }
     }
 
@@ -210,6 +278,14 @@ HTML = """
         left: 10px;
         right: 10px;
         width: auto;
+      }
+
+      .stats-strip {
+        gap: 8px;
+      }
+
+      .stats-chip-value {
+        font-size: 16px;
       }
     }
   </style>
@@ -240,8 +316,23 @@ HTML = """
     <p class="detail-empty">Waiting for a vessel selection.</p>
   </div>
 </div>
+<div class="stats-strip">
+  <div class="stats-chip">
+    <span class="stats-chip-label">Active</span>
+    <span id="stats-active" class="stats-chip-value">0</span>
+  </div>
+  <div class="stats-chip">
+    <span class="stats-chip-label">Tracks</span>
+    <span id="stats-tracks" class="stats-chip-value">0</span>
+  </div>
+  <div class="stats-chip">
+    <span class="stats-chip-label">Age</span>
+    <span id="stats-age" class="stats-chip-value">0s</span>
+  </div>
+</div>
 <div id="map"></div>
 <script>
+const PREFERENCES_KEY = 'ais-osmap-preferences';
 const map = L.map('map').setView([41.65, 41.64], 12);
 L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
   maxZoom: 19,
@@ -265,16 +356,44 @@ const controls = {
   detailSubtitle: document.getElementById('detail-subtitle'),
   detailContent: document.getElementById('detail-content'),
   detailClose: document.getElementById('detail-close'),
+  statsActive: document.getElementById('stats-active'),
+  statsTracks: document.getElementById('stats-tracks'),
+  statsAge: document.getElementById('stats-age'),
 };
+
+function loadPreferences() {
+  try {
+    return JSON.parse(localStorage.getItem(PREFERENCES_KEY) || '{}');
+  } catch (_error) {
+    return {};
+  }
+}
+
+function savePreferences() {
+  const preferences = {
+    showTracks: controls.showTracks.checked,
+    showClusters: controls.showClusters.checked,
+    trackLimit: Number(controls.trackLimit.value),
+  };
+  localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+}
+
+function applyPreferences() {
+  const preferences = loadPreferences();
+  controls.showTracks.checked = preferences.showTracks ?? true;
+  controls.showClusters.checked = preferences.showClusters ?? true;
+  controls.trackLimit.value = String(preferences.trackLimit ?? 50);
+  controls.trackLimitValue.textContent = controls.trackLimit.value;
+}
 
 function popupHtml(vessel) {
   return `
-    <b>${vessel.name || "Unknown vessel"}</b><br>
+    <b>${vessel.type_icon || ''} ${vessel.name || "Unknown vessel"}</b><br>
     MMSI: ${vessel.mmsi}<br>
+    Type: ${vessel.vessel_type_label || vessel.vessel_type || "?"}<br>
     Call sign: ${vessel.callsign || "?"}<br>
     IMO: ${vessel.imo ?? "?"}<br>
     Destination: ${vessel.destination || "?"}<br>
-    Type: ${vessel.vessel_type ?? "?"}<br>
     SOG: ${vessel.speed ?? "?"} kn<br>
     COG: ${vessel.course ?? "?"}&deg;<br>
     Heading: ${vessel.heading ?? "?"}&deg;<br>
@@ -299,7 +418,7 @@ function renderDetailPanel(vessel) {
   }
 
   controls.detailPanel.classList.add('is-visible');
-  controls.detailTitle.textContent = vessel.name || `Vessel ${vessel.mmsi}`;
+  controls.detailTitle.textContent = `${vessel.type_icon || ''} ${vessel.name || `Vessel ${vessel.mmsi}`}`.trim();
   controls.detailSubtitle.textContent = `MMSI ${vessel.mmsi} - ${formatValue(vessel.track_points)} stored track points`;
   controls.detailContent.innerHTML = `
     <div class="detail-grid">
@@ -321,13 +440,22 @@ function renderDetailPanel(vessel) {
       </div>
     </div>
     <ul class="detail-meta">
+      <li><strong>Type:</strong> ${formatValue(vessel.vessel_type_label || vessel.vessel_type)}</li>
       <li><strong>Call sign:</strong> ${formatValue(vessel.callsign)}</li>
       <li><strong>IMO:</strong> ${formatValue(vessel.imo)}</li>
       <li><strong>Destination:</strong> ${formatValue(vessel.destination)}</li>
-      <li><strong>Type:</strong> ${formatValue(vessel.vessel_type)}</li>
       <li><strong>Position:</strong> ${formatValue(vessel.lat)}, ${formatValue(vessel.lon)}</li>
     </ul>
   `;
+}
+
+function updateStats(vessels) {
+  const activeCount = vessels.length;
+  const totalTracks = vessels.reduce((sum, vessel) => sum + (vessel.track_points || 0), 0);
+  const maxAge = vessels.reduce((max, vessel) => Math.max(max, vessel.age || 0), 0);
+  controls.statsActive.textContent = String(activeCount);
+  controls.statsTracks.textContent = String(totalTracks);
+  controls.statsAge.textContent = `${Math.round(maxAge)}s`;
 }
 
 function getLimitedTrack(track) {
@@ -391,6 +519,7 @@ async function refresh() {
   const vessels = await res.json();
   const visible = new Set();
   activeVessels = vessels;
+  updateStats(vessels);
 
   for (const vessel of vessels) {
     visible.add(String(vessel.mmsi));
@@ -426,12 +555,22 @@ async function refresh() {
   }
 }
 
-controls.showTracks.addEventListener('change', refresh);
+applyPreferences();
+rebuildMarkerLayer();
+controls.showTracks.addEventListener('change', () => {
+  savePreferences();
+  refresh();
+});
 controls.showClusters.addEventListener('change', () => {
+  savePreferences();
   rebuildMarkerLayer();
   refresh();
 });
-controls.trackLimit.addEventListener('input', refresh);
+controls.trackLimit.addEventListener('input', () => {
+  controls.trackLimitValue.textContent = controls.trackLimit.value;
+  savePreferences();
+  refresh();
+});
 controls.detailClose.addEventListener('click', () => {
   selectedMmsi = null;
   renderDetailPanel(null);
@@ -446,6 +585,30 @@ setInterval(refresh, 2000);
 """
 
 
+def get_vessel_type_label(vessel_type: int | None) -> str | None:
+    if vessel_type is None:
+        return None
+    if vessel_type in VESSEL_TYPE_LABELS:
+        return VESSEL_TYPE_LABELS[vessel_type]
+    major_class = (vessel_type // 10) * 10
+    return VESSEL_TYPE_LABELS.get(major_class, f"AIS type {vessel_type}")
+
+
+def get_vessel_type_icon(vessel_type_label: str | None) -> str:
+    if not vessel_type_label:
+        return ""
+    return VESSEL_TYPE_ICONS.get(vessel_type_label, "🚢")
+
+
+def enrich_vessel(vessel: dict) -> dict:
+    vessel_type_label = get_vessel_type_label(vessel.get("vessel_type"))
+    return {
+        **vessel,
+        "vessel_type_label": vessel_type_label,
+        "type_icon": get_vessel_type_icon(vessel_type_label),
+    }
+
+
 @app.route("/")
 def index():
     return render_template_string(HTML)
@@ -455,7 +618,8 @@ def index():
 def get_ships():
     storage.purge_expired()
     track_limit = request.args.get("track_limit", default=TRACK_POINT_LIMIT, type=int)
-    return jsonify(storage.get_recent_vessels(include_tracks=True, track_limit=track_limit))
+    vessels = storage.get_recent_vessels(include_tracks=True, track_limit=track_limit)
+    return jsonify([enrich_vessel(vessel) for vessel in vessels])
 
 
 @app.route("/ships/<int:mmsi>/track")
@@ -463,6 +627,32 @@ def get_track(mmsi: int):
     storage.purge_expired()
     track_limit = request.args.get("limit", default=None, type=int)
     return jsonify(storage.get_track(mmsi, limit=track_limit))
+
+
+@app.route("/api/health")
+def health():
+    return jsonify(
+        {
+            "status": "ok",
+            "uptime_seconds": round(time.time() - app_started_at, 3),
+            "db_path": DB_PATH,
+            "ttl_seconds": DATA_TTL_SECONDS,
+        }
+    )
+
+
+@app.route("/api/stats")
+def stats():
+    storage.purge_expired()
+    vessels = storage.get_recent_vessels(include_tracks=True, track_limit=TRACK_POINT_LIMIT)
+    return jsonify(
+        {
+            "active_vessels": len(vessels),
+            "tracked_points": sum(vessel.get("track_points") or 0 for vessel in vessels),
+            "max_age_seconds": round(max((vessel.get("age") or 0) for vessel in vessels), 3) if vessels else 0,
+            "uptime_seconds": round(time.time() - app_started_at, 3),
+        }
+    )
 
 
 def extract_static_fields(data: dict) -> dict:
