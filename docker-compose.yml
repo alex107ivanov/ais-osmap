@@ -1,0 +1,15 @@
+services:
+  ais-osmap:
+    build: .
+    ports:
+      - "8080:8080"
+      - "10110:10110/udp"
+    environment:
+      AIS_UDP_HOST: 0.0.0.0
+      AIS_UDP_PORT: 10110
+      AIS_WEB_HOST: 0.0.0.0
+      AIS_WEB_PORT: 8080
+      AIS_DB_PATH: /data/ais_data.sqlite3
+      AIS_DATA_TTL_SECONDS: 86400
+    volumes:
+      - ./data:/data

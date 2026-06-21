@@ -3,17 +3,26 @@ from storage import AISStorage
 
 def test_upsert_and_fetch_recent_vessels(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
-    storage.upsert_static(123456789, "TEST VESSEL", seen_at=1000)
+    storage.upsert_static(
+        123456789,
+        {"shipname": "TEST VESSEL", "callsign": "CALL", "imo": 9876543, "destination": "BATUMI", "ship_type": 70},
+        seen_at=1000,
+    )
     storage.upsert_position(123456789, 41.1, 42.2, 12.3, 180, 175, seen_at=1000)
 
-    vessels = storage.get_recent_vessels(now=1010)
+    vessels = storage.get_recent_vessels(now=1010, include_tracks=True)
 
     assert len(vessels) == 1
     assert vessels[0]["mmsi"] == 123456789
     assert vessels[0]["name"] == "TEST VESSEL"
+    assert vessels[0]["callsign"] == "CALL"
+    assert vessels[0]["imo"] == 9876543
+    assert vessels[0]["destination"] == "BATUMI"
+    assert vessels[0]["vessel_type"] == 70
     assert vessels[0]["lat"] == 41.1
     assert vessels[0]["lon"] == 42.2
     assert vessels[0]["age"] == 10
+    assert len(vessels[0]["track"]) == 1
 
 
 def test_track_history_keeps_multiple_points(tmp_path):
@@ -30,7 +39,7 @@ def test_track_history_keeps_multiple_points(tmp_path):
 
 def test_purge_expired_removes_old_rows(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
-    storage.upsert_static(222000222, "OLD", seen_at=1000)
+    storage.upsert_static(222000222, {"shipname": "OLD"}, seen_at=1000)
     storage.upsert_position(222000222, 40.0, 43.0, None, None, None, seen_at=1000)
     storage.upsert_position(333000333, 41.0, 44.0, None, None, None, seen_at=1100)
 

@@ -25,6 +25,10 @@ class AISStorage:
                 CREATE TABLE IF NOT EXISTS vessel_static (
                     mmsi INTEGER PRIMARY KEY,
                     shipname TEXT,
+                    callsign TEXT,
+                    imo INTEGER,
+                    destination TEXT,
+                    vessel_type INTEGER,
                     updated_at REAL NOT NULL
                 );
 
@@ -53,6 +57,15 @@ class AISStorage:
                     ON vessel_tracks (mmsi, seen_at);
                 """
             )
+            self._ensure_column(conn, "vessel_static", "callsign", "TEXT")
+            self._ensure_column(conn, "vessel_static", "imo", "INTEGER")
+            self._ensure_column(conn, "vessel_static", "destination", "TEXT")
+            self._ensure_column(conn, "vessel_static", "vessel_type", "INTEGER")
+
+    def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
+        columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
+        if column not in columns:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {column} {definition}")
 
     def purge_expired(self, now: float | None = None) -> None:
         cutoff = (now or time.time()) - self.ttl_seconds
@@ -64,21 +77,43 @@ class AISStorage:
                 (cutoff,),
             )
 
-    def upsert_static(self, mmsi: int, shipname: str, seen_at: float | None = None) -> None:
+    def upsert_static(self, mmsi: int, fields: dict[str, Any], seen_at: float | None = None) -> None:
         timestamp = seen_at or time.time()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO vessel_static (mmsi, shipname, updated_at)
-                VALUES (?, ?, ?)
+                INSERT INTO vessel_static (
+                    mmsi, shipname, callsign, imo, destination, vessel_type, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mmsi) DO UPDATE SET
-                    shipname = excluded.shipname,
+                    shipname = COALESCE(excluded.shipname, vessel_static.shipname),
+                    callsign = COALESCE(excluded.callsign, vessel_static.callsign),
+                    imo = COALESCE(excluded.imo, vessel_static.imo),
+                    destination = COALESCE(excluded.destination, vessel_static.destination),
+                    vessel_type = COALESCE(excluded.vessel_type, vessel_static.vessel_type),
                     updated_at = excluded.updated_at
                 """,
-                (mmsi, shipname, timestamp),
+                (
+                    mmsi,
+                    fields.get("shipname"),
+                    fields.get("callsign"),
+                    fields.get("imo"),
+                    fields.get("destination"),
+                    fields.get("ship_type") or fields.get("vessel_type"),
+                    timestamp,
+                ),
             )
 
-    def upsert_position(self, mmsi: int, lat: float, lon: float, speed: Any, course: Any, heading: Any, seen_at: float | None = None) -> None:
+    def upsert_position(
+        self,
+        mmsi: int,
+        lat: float,
+        lon: float,
+        speed: Any,
+        course: Any,
+        heading: Any,
+        seen_at: float | None = None,
+    ) -> None:
         timestamp = seen_at or time.time()
         with self._connect() as conn:
             conn.execute(
@@ -103,13 +138,25 @@ class AISStorage:
                 (mmsi, lat, lon, speed, course, heading, timestamp),
             )
 
-    def get_recent_vessels(self, now: float | None = None) -> list[dict[str, Any]]:
+    def get_recent_vessels(self, now: float | None = None, include_tracks: bool = False) -> list[dict[str, Any]]:
         current_time = now or time.time()
         cutoff = current_time - self.ttl_seconds
         with self._connect() as conn:
             rows = conn.execute(
                 """
-                SELECT p.mmsi, s.shipname, p.lat, p.lon, p.speed, p.course, p.heading, p.last_seen
+                SELECT
+                    p.mmsi,
+                    s.shipname,
+                    s.callsign,
+                    s.imo,
+                    s.destination,
+                    s.vessel_type,
+                    p.lat,
+                    p.lon,
+                    p.speed,
+                    p.course,
+                    p.heading,
+                    p.last_seen
                 FROM vessel_positions p
                 LEFT JOIN vessel_static s ON s.mmsi = p.mmsi
                 WHERE p.last_seen >= ?
@@ -117,16 +164,45 @@ class AISStorage:
                 """,
                 (cutoff,),
             ).fetchall()
+
+            tracks_by_mmsi = {}
+            if include_tracks:
+                track_rows = conn.execute(
+                    """
+                    SELECT mmsi, lat, lon, speed, course, heading, seen_at
+                    FROM vessel_tracks
+                    WHERE seen_at >= ?
+                    ORDER BY mmsi ASC, seen_at ASC
+                    """,
+                    (cutoff,),
+                ).fetchall()
+                for row in track_rows:
+                    tracks_by_mmsi.setdefault(row["mmsi"], []).append(
+                        {
+                            "lat": row["lat"],
+                            "lon": row["lon"],
+                            "speed": row["speed"],
+                            "course": row["course"],
+                            "heading": row["heading"],
+                            "seen_at": row["seen_at"],
+                        }
+                    )
+
         return [
             {
                 "mmsi": row["mmsi"],
                 "name": row["shipname"],
+                "callsign": row["callsign"],
+                "imo": row["imo"],
+                "destination": row["destination"],
+                "vessel_type": row["vessel_type"],
                 "lat": row["lat"],
                 "lon": row["lon"],
                 "speed": row["speed"],
                 "course": row["course"],
                 "heading": row["heading"],
                 "age": current_time - row["last_seen"],
+                "track": tracks_by_mmsi.get(row["mmsi"], []) if include_tracks else None,
             }
             for row in rows
         ]

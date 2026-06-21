@@ -28,10 +28,99 @@ HTML = """
   <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
   <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
   <style>
+    :root {
+      --panel-bg: rgba(248, 246, 239, 0.92);
+      --panel-border: rgba(31, 53, 70, 0.18);
+      --panel-shadow: 0 16px 30px rgba(22, 34, 44, 0.18);
+      --text-main: #163241;
+      --text-muted: #5f6f79;
+      --accent: #bf5b39;
+      --track: #bf5b39;
+      --track-muted: #dfab7b;
+    }
+
     html, body, #map { height: 100%; margin: 0; }
+    body { font-family: Georgia, "Times New Roman", serif; }
+
+    .control-panel {
+      position: absolute;
+      top: 14px;
+      left: 14px;
+      z-index: 1000;
+      width: min(290px, calc(100vw - 28px));
+      padding: 14px 16px;
+      border: 1px solid var(--panel-border);
+      border-radius: 16px;
+      background: var(--panel-bg);
+      box-shadow: var(--panel-shadow);
+      backdrop-filter: blur(8px);
+    }
+
+    .control-panel h1 {
+      margin: 0 0 6px;
+      font-size: 20px;
+      line-height: 1.1;
+      color: var(--text-main);
+    }
+
+    .control-panel p {
+      margin: 0 0 12px;
+      font-size: 13px;
+      color: var(--text-muted);
+    }
+
+    .control-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      margin: 10px 0;
+      color: var(--text-main);
+      font-size: 14px;
+    }
+
+    .control-row input[type="range"] {
+      flex: 1;
+      accent-color: var(--accent);
+    }
+
+    .control-row output {
+      min-width: 48px;
+      text-align: right;
+      color: var(--accent);
+      font-weight: bold;
+    }
+
+    .control-row input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      accent-color: var(--accent);
+    }
+
+    @media (max-width: 640px) {
+      .control-panel {
+        top: 10px;
+        left: 10px;
+        right: 10px;
+        width: auto;
+      }
+    }
   </style>
 </head>
 <body>
+<div class="control-panel">
+  <h1>AIS OSMap</h1>
+  <p>Live vessels, recent tracks, and lightweight local persistence.</p>
+  <label class="control-row">
+    <span>Show tracks</span>
+    <input id="toggle-tracks" type="checkbox" checked>
+  </label>
+  <label class="control-row">
+    <span>Track points</span>
+    <input id="track-limit" type="range" min="2" max="200" step="1" value="50">
+    <output id="track-limit-value">50</output>
+  </label>
+</div>
 <div id="map"></div>
 <script>
 const map = L.map('map').setView([41.65, 41.64], 12);
@@ -42,16 +131,55 @@ L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
 
 const markers = {};
 const tracks = {};
+const controls = {
+  showTracks: document.getElementById('toggle-tracks'),
+  trackLimit: document.getElementById('track-limit'),
+  trackLimitValue: document.getElementById('track-limit-value'),
+};
 
 function popupHtml(vessel) {
   return `
     <b>${vessel.name || "Unknown vessel"}</b><br>
     MMSI: ${vessel.mmsi}<br>
+    Call sign: ${vessel.callsign || "?"}<br>
+    IMO: ${vessel.imo ?? "?"}<br>
+    Destination: ${vessel.destination || "?"}<br>
+    Type: ${vessel.vessel_type ?? "?"}<br>
     SOG: ${vessel.speed ?? "?"} kn<br>
     COG: ${vessel.course ?? "?"}&deg;<br>
     Heading: ${vessel.heading ?? "?"}&deg;<br>
     Last seen: ${vessel.age.toFixed(0)} s ago
   `;
+}
+
+function getLimitedTrack(track) {
+  const limit = Number(controls.trackLimit.value);
+  controls.trackLimitValue.textContent = String(limit);
+  return (track || []).slice(-limit);
+}
+
+function syncTrack(vessel) {
+  const shouldShow = controls.showTracks.checked;
+  const latlngs = getLimitedTrack(vessel.track).map(point => [point.lat, point.lon]);
+
+  if (!shouldShow || latlngs.length <= 1) {
+    if (tracks[vessel.mmsi]) {
+      map.removeLayer(tracks[vessel.mmsi]);
+      delete tracks[vessel.mmsi];
+    }
+    return;
+  }
+
+  if (tracks[vessel.mmsi]) {
+    tracks[vessel.mmsi].setLatLngs(latlngs);
+    return;
+  }
+
+  tracks[vessel.mmsi] = L.polyline(latlngs, {
+    weight: 2,
+    opacity: 0.7,
+    color: '#bf5b39',
+  }).addTo(map);
 }
 
 async function refresh() {
@@ -69,16 +197,7 @@ async function refresh() {
     }
 
     markers[vessel.mmsi].bindPopup(popupHtml(vessel));
-
-    const trackRes = await fetch(`/ships/${vessel.mmsi}/track`);
-    const track = await trackRes.json();
-    const latlngs = track.map(point => [point.lat, point.lon]);
-
-    if (tracks[vessel.mmsi]) {
-      tracks[vessel.mmsi].setLatLngs(latlngs);
-    } else if (latlngs.length > 1) {
-      tracks[vessel.mmsi] = L.polyline(latlngs, {weight: 2, opacity: 0.6}).addTo(map);
-    }
+    syncTrack(vessel);
   }
 
   for (const mmsi of Object.keys(markers)) {
@@ -93,8 +212,10 @@ async function refresh() {
   }
 }
 
-setInterval(refresh, 2000);
+controls.showTracks.addEventListener('change', refresh);
+controls.trackLimit.addEventListener('input', refresh);
 refresh();
+setInterval(refresh, 2000);
 </script>
 </body>
 </html>
@@ -109,13 +230,24 @@ def index():
 @app.route("/ships")
 def get_ships():
     storage.purge_expired()
-    return jsonify(storage.get_recent_vessels())
+    return jsonify(storage.get_recent_vessels(include_tracks=True))
 
 
 @app.route("/ships/<int:mmsi>/track")
 def get_track(mmsi: int):
     storage.purge_expired()
     return jsonify(storage.get_track(mmsi))
+
+
+def extract_static_fields(data: dict) -> dict:
+    static_fields = {}
+    for field in ("shipname", "callsign", "imo", "destination", "ship_type", "vessel_type"):
+        value = data.get(field)
+        if isinstance(value, str):
+            value = value.strip() or None
+        if value is not None:
+            static_fields[field] = value
+    return static_fields
 
 
 def handle_nmea(line: str):
@@ -148,13 +280,12 @@ def handle_nmea(line: str):
             return
 
         seen_at = time.time()
-
-        if "shipname" in data and data["shipname"]:
-            storage.upsert_static(mmsi, data["shipname"].strip(), seen_at=seen_at)
+        static_fields = extract_static_fields(data)
+        if static_fields:
+            storage.upsert_static(mmsi, static_fields, seen_at=seen_at)
 
         lat = data.get("lat")
         lon = data.get("lon")
-
         if lat is not None and lon is not None:
             storage.upsert_position(
                 mmsi,
@@ -165,8 +296,8 @@ def handle_nmea(line: str):
                 data.get("heading"),
                 seen_at=seen_at,
             )
-            storage.purge_expired(now=seen_at)
 
+        storage.purge_expired(now=seen_at)
     except Exception as exc:
         print("Decode error:", exc, line)
 
