@@ -19,11 +19,25 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["imo"] == 9876543
     assert vessels[0]["destination"] == "BATUMI"
     assert vessels[0]["vessel_type"] == 70
+    assert vessels[0]["is_aid_to_navigation"] is False
     assert vessels[0]["lat"] == 41.1
     assert vessels[0]["lon"] == 42.2
     assert vessels[0]["age"] == 10
     assert len(vessels[0]["track"]) == 1
     assert vessels[0]["track_points"] == 1
+
+
+def test_static_aid_position_does_not_append_track(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
+    storage.upsert_static(993692000, {"shipname": "LIGHTHOUSE", "vessel_type": 21}, seen_at=1000)
+    storage.upsert_position(993692000, 41.0, 42.0, 0, 0, 0, seen_at=1000, is_aid_to_navigation=True, append_track=False)
+
+    vessels = storage.get_recent_vessels(now=1010, include_tracks=True)
+
+    assert len(vessels) == 1
+    assert vessels[0]["is_aid_to_navigation"] is True
+    assert vessels[0]["track_points"] == 0
+    assert vessels[0]["track"] == []
 
 
 def test_track_history_keeps_multiple_points(tmp_path):

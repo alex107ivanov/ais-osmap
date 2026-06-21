@@ -4,7 +4,7 @@ import types
 sys.modules.setdefault("flask", types.SimpleNamespace(
     Flask=lambda *_args, **_kwargs: types.SimpleNamespace(route=lambda *_a, **_k: (lambda func: func)),
     jsonify=lambda value: value,
-    render_template_string=lambda value: value,
+    render_template=lambda template, **context: {"template": template, **context},
     request=types.SimpleNamespace(args=types.SimpleNamespace(get=lambda _key, default=None, type=None: default)),
 ))
 sys.modules.setdefault("pyais", types.SimpleNamespace(decode=lambda *_args, **_kwargs: None))
@@ -44,25 +44,42 @@ def test_extract_static_fields_strips_values():
 def test_vessel_type_label_and_icon_mapping():
     assert ais_map.get_vessel_type_label(70) == "Cargo"
     assert ais_map.get_vessel_type_label(71) == "Cargo"
+    assert ais_map.get_vessel_type_label(21) == "Aid to navigation"
     assert ais_map.get_vessel_type_icon("Cargo") == "📦"
+    assert ais_map.get_vessel_type_icon("Aid to navigation") == "🗼"
     assert ais_map.get_vessel_type_icon(None) == ""
 
 
 def test_enrich_vessel_adds_type_metadata():
-    vessel = ais_map.enrich_vessel({"mmsi": 1, "vessel_type": 52})
+    vessel = ais_map.enrich_vessel({"mmsi": 1, "vessel_type": 52, "is_aid_to_navigation": False})
 
     assert vessel["vessel_type_label"] == "Tug"
     assert vessel["type_icon"] == "🪢"
 
 
-def test_map_html_contains_controls_stats_and_detail_panel():
-    assert 'id="toggle-tracks"' in ais_map.HTML
-    assert 'id="toggle-clusters"' in ais_map.HTML
-    assert 'id="track-limit"' in ais_map.HTML
-    assert 'id="detail-panel"' in ais_map.HTML
-    assert 'id="stats-active"' in ais_map.HTML
-    assert 'localStorage' in ais_map.HTML
-    assert 'leaflet.markercluster' in ais_map.HTML
+def test_aid_to_navigation_detection():
+    assert ais_map.is_aid_to_navigation({"msg_type": 21}) is True
+    assert ais_map.is_aid_to_navigation({"aid_type": 5}) is True
+    assert ais_map.is_aid_to_navigation({"vessel_type": 21}) is True
+    assert ais_map.is_aid_to_navigation({"msg_type": 1, "vessel_type": 70}) is False
+
+
+def test_trackable_position_filters_stationary_objects():
+    assert ais_map.is_trackable_position({"msg_type": 1, "vessel_type": 70}) is True
+    assert ais_map.is_trackable_position({"msg_type": 21, "aid_type": 1}) is False
+    assert ais_map.is_trackable_position({"msg_type": 4}) is False
+
+
+def test_coordinate_validation_rejects_impossible_values():
+    assert ais_map.is_valid_coordinate(41.65, 41.64) is True
+    assert ais_map.is_valid_coordinate(2528.0, 2499.7) is False
+    assert ais_map.is_valid_coordinate(None, 41.64) is False
+
+
+def test_index_uses_template_context():
+    result = ais_map.index()
+    assert result["template"] == "index.html"
+    assert result["default_track_limit"] == ais_map.TRACK_POINT_LIMIT
 
 
 def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
@@ -74,6 +91,7 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
         lambda *_args, **_kwargs: FakeMessage(
             {
                 "mmsi": 123456789,
+                "msg_type": 1,
                 "shipname": " DEMO ",
                 "callsign": " SIGN ",
                 "imo": 9990001,
@@ -100,8 +118,63 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["vessel_type"] == 52
     assert vessels[0]["vessel_type_label"] == "Tug"
     assert vessels[0]["type_icon"] == "🪢"
+    assert vessels[0]["is_aid_to_navigation"] is False
     assert len(vessels[0]["track"]) == 1
     assert vessels[0]["track_points"] == 1
+
+
+def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
+    monkeypatch.setattr(ais_map, "storage", storage)
+    monkeypatch.setattr(
+        ais_map,
+        "decode",
+        lambda *_args, **_kwargs: FakeMessage(
+            {
+                "mmsi": 993692000,
+                "msg_type": 21,
+                "shipname": " LIGHTHOUSE ",
+                "aid_type": 1,
+                "lat": 41.65,
+                "lon": 41.64,
+                "speed": 0,
+                "course": 0,
+                "heading": 0,
+            }
+        ),
+    )
+
+    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
+    vessels = [ais_map.enrich_vessel(vessel) for vessel in storage.get_recent_vessels(include_tracks=True)]
+
+    assert len(vessels) == 1
+    assert vessels[0]["is_aid_to_navigation"] is True
+    assert vessels[0]["vessel_type"] == 21
+    assert vessels[0]["vessel_type_label"] == "Aid to navigation"
+    assert vessels[0]["type_icon"] == "🗼"
+    assert vessels[0]["track_points"] == 0
+    assert vessels[0]["track"] == []
+
+
+def test_handle_nmea_ignores_invalid_coordinates(monkeypatch, tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
+    monkeypatch.setattr(ais_map, "storage", storage)
+    monkeypatch.setattr(
+        ais_map,
+        "decode",
+        lambda *_args, **_kwargs: FakeMessage(
+            {
+                "mmsi": 2130201,
+                "msg_type": 1,
+                "lat": 2528.0,
+                "lon": 2499.7,
+            }
+        ),
+    )
+
+    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
+
+    assert storage.get_recent_vessels(include_tracks=True) == []
 
 
 def test_handle_nmea_ignores_non_ais(monkeypatch, tmp_path):

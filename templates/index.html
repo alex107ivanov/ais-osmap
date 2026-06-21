@@ -1,0 +1,61 @@
+<!doctype html>
+<html>
+<head>
+  <title>AIS Map</title>
+  <meta charset="utf-8">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet/dist/leaflet.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.css">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet.markercluster@1.5.3/dist/MarkerCluster.Default.css">
+  <link rel="stylesheet" href="{{ url_for('static', filename='app.css') }}">
+  <script src="https://unpkg.com/leaflet/dist/leaflet.js"></script>
+  <script src="https://unpkg.com/leaflet.markercluster@1.5.3/dist/leaflet.markercluster.js"></script>
+</head>
+<body>
+<div class="control-panel">
+  <h1>AIS OSMap</h1>
+  <p>Live vessels, recent tracks, and lightweight local persistence.</p>
+  <label class="control-row">
+    <span>Show tracks</span>
+    <input id="toggle-tracks" type="checkbox" checked>
+  </label>
+  <label class="control-row">
+    <span>Cluster markers</span>
+    <input id="toggle-clusters" type="checkbox" checked>
+  </label>
+  <label class="control-row">
+    <span>Track points</span>
+    <input id="track-limit" type="range" min="2" max="200" step="1" value="50">
+    <output id="track-limit-value">50</output>
+  </label>
+</div>
+<div id="detail-panel" class="detail-panel">
+  <button id="detail-close" class="detail-close" type="button" aria-label="Close details">&times;</button>
+  <h2 id="detail-title">No vessel selected</h2>
+  <p id="detail-subtitle" class="detail-subtitle">Click a marker to inspect live vessel details.</p>
+  <div id="detail-content">
+    <p class="detail-empty">Waiting for a vessel selection.</p>
+  </div>
+</div>
+<div class="stats-strip">
+  <div class="stats-chip">
+    <span class="stats-chip-label">Active</span>
+    <span id="stats-active" class="stats-chip-value">0</span>
+  </div>
+  <div class="stats-chip">
+    <span class="stats-chip-label">Tracks</span>
+    <span id="stats-tracks" class="stats-chip-value">0</span>
+  </div>
+  <div class="stats-chip">
+    <span class="stats-chip-label">Age</span>
+    <span id="stats-age" class="stats-chip-value">0s</span>
+  </div>
+</div>
+<div id="map"></div>
+<script>
+  window.AIS_OSMAP_CONFIG = {
+    defaultTrackLimit: {{ default_track_limit | tojson }}
+  };
+</script>
+<script src="{{ url_for('static', filename='app.js') }}"></script>
+</body>
+</html>

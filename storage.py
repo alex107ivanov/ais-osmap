@@ -41,6 +41,7 @@ class AISStorage:
                     speed REAL,
                     course REAL,
                     heading REAL,
+                    is_aid_to_navigation INTEGER NOT NULL DEFAULT 0,
                     last_seen REAL NOT NULL
                 );
 
@@ -63,6 +64,7 @@ class AISStorage:
             self._ensure_column(conn, "vessel_static", "imo", "INTEGER")
             self._ensure_column(conn, "vessel_static", "destination", "TEXT")
             self._ensure_column(conn, "vessel_static", "vessel_type", "INTEGER")
+            self._ensure_column(conn, "vessel_positions", "is_aid_to_navigation", "INTEGER NOT NULL DEFAULT 0")
 
     def _ensure_column(self, conn: sqlite3.Connection, table: str, column: str, definition: str) -> None:
         columns = {row[1] for row in conn.execute(f"PRAGMA table_info({table})")}
@@ -137,30 +139,34 @@ class AISStorage:
         course: Any,
         heading: Any,
         seen_at: float | None = None,
+        is_aid_to_navigation: bool = False,
+        append_track: bool = True,
     ) -> None:
         timestamp = seen_at or time.time()
         with self._connect() as conn:
             conn.execute(
                 """
-                INSERT INTO vessel_positions (mmsi, lat, lon, speed, course, heading, last_seen)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
+                INSERT INTO vessel_positions (mmsi, lat, lon, speed, course, heading, is_aid_to_navigation, last_seen)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(mmsi) DO UPDATE SET
                     lat = excluded.lat,
                     lon = excluded.lon,
                     speed = excluded.speed,
                     course = excluded.course,
                     heading = excluded.heading,
+                    is_aid_to_navigation = excluded.is_aid_to_navigation,
                     last_seen = excluded.last_seen
                 """,
-                (mmsi, lat, lon, speed, course, heading, timestamp),
+                (mmsi, lat, lon, speed, course, heading, int(is_aid_to_navigation), timestamp),
             )
-            conn.execute(
-                """
-                INSERT INTO vessel_tracks (mmsi, lat, lon, speed, course, heading, seen_at)
-                VALUES (?, ?, ?, ?, ?, ?, ?)
-                """,
-                (mmsi, lat, lon, speed, course, heading, timestamp),
-            )
+            if append_track:
+                conn.execute(
+                    """
+                    INSERT INTO vessel_tracks (mmsi, lat, lon, speed, course, heading, seen_at)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (mmsi, lat, lon, speed, course, heading, timestamp),
+                )
 
     def get_recent_vessels(
         self,
@@ -185,6 +191,7 @@ class AISStorage:
                     p.speed,
                     p.course,
                     p.heading,
+                    p.is_aid_to_navigation,
                     p.last_seen
                 FROM vessel_positions p
                 LEFT JOIN vessel_static s ON s.mmsi = p.mmsi
@@ -230,6 +237,7 @@ class AISStorage:
                 "speed": row["speed"],
                 "course": row["course"],
                 "heading": row["heading"],
+                "is_aid_to_navigation": bool(row["is_aid_to_navigation"]),
                 "age": current_time - row["last_seen"],
                 "track": self._thin_track(tracks_by_mmsi.get(row["mmsi"], []), track_limit) if include_tracks else None,
                 "track_points": len(tracks_by_mmsi.get(row["mmsi"], [])) if include_tracks else None,
