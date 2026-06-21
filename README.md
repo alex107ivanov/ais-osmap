@@ -6,7 +6,8 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - UDP listener for `rtl-ais` output
 - AIS decode via `pyais`
 - Web map with live vessel markers and tracks
-- SQLite-backed persistence for current state and recent history
+- Distinct marker shapes for moving vessels, stationary/base-station-like targets, and aids to navigation
+- SQLite-backed persistence for current state, recent history, and diagnostics
 - 24-hour TTL cleanup for stale vessel state and tracks
 - Startup self-healing that purges impossible stored coordinates
 - Batched track delivery in the `/ships` response
@@ -15,24 +16,31 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 - Vessel detail panel with live stats and metadata
 - Vessel type labels and simple category icons
 - Saved UI preferences for track visibility, clustering, and track density
-- `/api/health` and `/api/stats` endpoints for lightweight ops visibility
+- `/api/health`, `/api/stats`, and `/api/diagnostics` endpoints for lightweight ops visibility
 - Frontend split into `templates/` and `static/` assets for easier maintenance
 - Basic test suite and GitHub Actions CI
 - Simple `Makefile` for local setup and test commands
 - Docker and Compose support for reproducible local runs
 
+## Diagnostics and strange targets
+The app now stores a rolling window of recent diagnostic events for debugging odd AIS traffic, including:
+- invalid coordinate reports such as `lat=91.0`, `lon=181.0`
+- stationary position messages such as base-station-like `type 4` reports and aid-to-navigation updates
+
+This is especially useful for targets like `2130200` and `2130201`, where the feed may carry non-vessel infrastructure behavior that should not be treated like normal moving ship tracks.
+
 ## What we can use from `gpsdecode`
 Your sample shows several useful AIS message types and fields beyond raw position:
 - `type 1` / `type 3`: moving vessel position reports with navigational status, speed, course, heading, RAIM, and accuracy
-- `type 4`: base-station-like or stationary reports with timestamp and EPFD source; we now treat these as non-trackable stationary positions
+- `type 4`: base-station-like or stationary reports with timestamp and EPFD source; we treat these as non-trackable stationary positions and highlight them differently on the map
 - `type 5`: static/voyage details like `shipname`, `callsign`, `destination`, and `shiptype`
 - `type 20`: data link management; not shown on the map yet, but useful for diagnostics later
 
-The sample also shows sentinel invalid coordinates like `lon=181.0` and `lat=91.0` for `mmsi=2130200`; the app now rejects those automatically and purges any old impossible rows on startup.
+The sample also shows sentinel invalid coordinates like `lon=181.0` and `lat=91.0` for `mmsi=2130200`; the app rejects those automatically, records them in diagnostics, and purges any old impossible rows on startup.
 
 ## Architecture
-- `ais_map.py` runs the UDP listener, Flask web app, API endpoints, startup cleanup, and AIS message handling.
-- `storage.py` owns SQLite schema, upserts, cleanup, track thinning, and track queries.
+- `ais_map.py` runs the UDP listener, Flask web app, API endpoints, startup cleanup, diagnostics capture, and AIS message handling.
+- `storage.py` owns SQLite schema, upserts, cleanup, diagnostics retention, track thinning, and track queries.
 - `templates/index.html` contains the page structure.
 - `static/app.css` and `static/app.js` contain the map UI styling and behavior.
 - `tests/` covers storage behavior and parser/update flows.
@@ -98,12 +106,14 @@ Environment variables:
 - `GET /ships/<mmsi>/track` returns recent track points for one vessel
 - `GET /api/health` returns status, uptime, TTL, DB path, and startup cleanup counts
 - `GET /api/stats` returns active vessel count, total tracked points, AtoN/base-station-like counts, max vessel age, and app uptime
+- `GET /api/diagnostics` returns recent diagnostic messages and summary counts
 
 ## Persistence model
 SQLite stores three kinds of data:
 - `vessel_static`: vessel name and static metadata such as call sign, IMO, destination, vessel type, EPFD source, status text, and AtoN type
 - `vessel_positions`: latest known position per MMSI, including whether the object is an aid to navigation, nav status, accuracy, RAIM, EPFD source, and last seen message type
 - `vessel_tracks`: append-only recent movement history per MMSI
+- `diagnostics_messages`: a rolling window of recent rejected or special-case AIS events for troubleshooting
 
 Data retention uses a TTL, defaulting to 24 hours. Expired rows are purged during normal ingest and read activity.
 
@@ -116,5 +126,6 @@ The map overlay includes:
 - a slider for limiting how many recent points are drawn per vessel
 - a vessel detail panel opened by clicking a marker
 - a small live stats strip for active vessels and retained tracks
+- a diagnostics panel showing recent invalid or special-case AIS events
 
 The app stores the main map toggles in `localStorage`, so your preferred viewing mode survives page reloads.

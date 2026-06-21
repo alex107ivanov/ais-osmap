@@ -22,6 +22,8 @@ const controls = {
   detailSubtitle: document.getElementById('detail-subtitle'),
   detailContent: document.getElementById('detail-content'),
   detailClose: document.getElementById('detail-close'),
+  diagnosticsSummary: document.getElementById('diagnostics-summary'),
+  diagnosticsList: document.getElementById('diagnostics-list'),
   statsActive: document.getElementById('stats-active'),
   statsTracks: document.getElementById('stats-tracks'),
   statsAge: document.getElementById('stats-age'),
@@ -50,6 +52,25 @@ function applyPreferences() {
   controls.showClusters.checked = preferences.showClusters ?? true;
   controls.trackLimit.value = String(preferences.trackLimit ?? DEFAULT_TRACK_LIMIT);
   controls.trackLimitValue.textContent = controls.trackLimit.value;
+}
+
+function markerClass(vessel) {
+  if (vessel.is_aid_to_navigation) {
+    return 'map-marker map-marker--aton';
+  }
+  if (vessel.message_type === 4) {
+    return 'map-marker map-marker--station';
+  }
+  return 'map-marker map-marker--vessel';
+}
+
+function markerIcon(vessel) {
+  return L.divIcon({
+    className: '',
+    html: `<div class="${markerClass(vessel)}"></div>`,
+    iconSize: [18, 18],
+    iconAnchor: [9, 9],
+  });
 }
 
 function popupHtml(vessel) {
@@ -123,6 +144,22 @@ function renderDetailPanel(vessel) {
   `;
 }
 
+function updateDiagnostics(data) {
+  controls.diagnosticsSummary.textContent = `${data.summary.total_messages} stored diagnostics, ${data.summary.invalid_coordinates} invalid coordinates, ${data.summary.stationary_messages} stationary reports`;
+  if (!data.messages.length) {
+    controls.diagnosticsList.innerHTML = '<p class="detail-empty">No recent diagnostics.</p>';
+    return;
+  }
+
+  controls.diagnosticsList.innerHTML = data.messages.map(message => `
+    <div class="diagnostics-item">
+      <div class="diagnostics-reason">${message.reason}</div>
+      <div>MMSI: ${message.mmsi ?? '?'} | Type: ${message.message_type ?? '?'}</div>
+      <div>${message.raw_line ? message.raw_line.slice(0, 72) : 'No raw line stored'}</div>
+    </div>
+  `).join('');
+}
+
 function updateStats(vessels) {
   const activeCount = vessels.length;
   const totalTracks = vessels.reduce((sum, vessel) => sum + (vessel.track_points || 0), 0);
@@ -189,19 +226,25 @@ function bindMarker(marker, vessel) {
 
 async function refresh() {
   const trackLimit = Number(controls.trackLimit.value);
-  const res = await fetch(`/ships?track_limit=${trackLimit}`);
-  const vessels = await res.json();
+  const [vesselsRes, diagnosticsRes] = await Promise.all([
+    fetch(`/ships?track_limit=${trackLimit}`),
+    fetch('/api/diagnostics?limit=8'),
+  ]);
+  const vessels = await vesselsRes.json();
+  const diagnostics = await diagnosticsRes.json();
   const visible = new Set();
   updateStats(vessels);
+  updateDiagnostics(diagnostics);
 
   for (const vessel of vessels) {
     visible.add(String(vessel.mmsi));
 
     if (!markers[vessel.mmsi]) {
-      markers[vessel.mmsi] = L.marker([vessel.lat, vessel.lon]);
+      markers[vessel.mmsi] = L.marker([vessel.lat, vessel.lon], { icon: markerIcon(vessel) });
       markerLayer.addLayer(markers[vessel.mmsi]);
     } else {
       markers[vessel.mmsi].setLatLng([vessel.lat, vessel.lon]);
+      markers[vessel.mmsi].setIcon(markerIcon(vessel));
     }
 
     bindMarker(markers[vessel.mmsi], vessel);

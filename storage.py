@@ -1,3 +1,4 @@
+import json
 import sqlite3
 import time
 from pathlib import Path
@@ -6,6 +7,7 @@ from typing import Any
 DB_PATH = Path("ais_data.sqlite3")
 DEFAULT_TTL_SECONDS = 24 * 60 * 60
 DEFAULT_TRACK_POINT_LIMIT = 50
+MAX_DIAGNOSTIC_MESSAGES = 200
 
 
 class AISStorage:
@@ -66,8 +68,21 @@ class AISStorage:
                     seen_at REAL NOT NULL
                 );
 
+                CREATE TABLE IF NOT EXISTS diagnostics_messages (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    mmsi INTEGER,
+                    message_type INTEGER,
+                    reason TEXT NOT NULL,
+                    raw_line TEXT,
+                    payload_json TEXT,
+                    created_at REAL NOT NULL
+                );
+
                 CREATE INDEX IF NOT EXISTS idx_vessel_tracks_mmsi_seen_at
                     ON vessel_tracks (mmsi, seen_at);
+
+                CREATE INDEX IF NOT EXISTS idx_diagnostics_created_at
+                    ON diagnostics_messages (created_at DESC);
                 """
             )
             self._ensure_column(conn, "vessel_static", "callsign", "TEXT")
@@ -125,6 +140,80 @@ class AISStorage:
         return {
             "vessel_tracks": invalid_track_rows,
             "vessel_positions": invalid_position_rows,
+        }
+
+    def record_diagnostic_message(
+        self,
+        reason: str,
+        raw_line: str,
+        payload: dict[str, Any] | None = None,
+        mmsi: int | None = None,
+        message_type: int | None = None,
+        created_at: float | None = None,
+    ) -> None:
+        timestamp = created_at or time.time()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO diagnostics_messages (mmsi, message_type, reason, raw_line, payload_json, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    mmsi,
+                    message_type,
+                    reason,
+                    raw_line,
+                    json.dumps(payload, sort_keys=True) if payload is not None else None,
+                    timestamp,
+                ),
+            )
+            conn.execute(
+                """
+                DELETE FROM diagnostics_messages
+                WHERE id NOT IN (
+                    SELECT id FROM diagnostics_messages ORDER BY created_at DESC LIMIT ?
+                )
+                """,
+                (MAX_DIAGNOSTIC_MESSAGES,),
+            )
+
+    def get_recent_diagnostics(self, limit: int = 20) -> list[dict[str, Any]]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT id, mmsi, message_type, reason, raw_line, payload_json, created_at
+                FROM diagnostics_messages
+                ORDER BY created_at DESC
+                LIMIT ?
+                """,
+                (limit,),
+            ).fetchall()
+        return [
+            {
+                "id": row["id"],
+                "mmsi": row["mmsi"],
+                "message_type": row["message_type"],
+                "reason": row["reason"],
+                "raw_line": row["raw_line"],
+                "payload": json.loads(row["payload_json"]) if row["payload_json"] else None,
+                "created_at": row["created_at"],
+            }
+            for row in rows
+        ]
+
+    def get_diagnostics_summary(self) -> dict[str, Any]:
+        with self._connect() as conn:
+            total = conn.execute("SELECT COUNT(*) FROM diagnostics_messages").fetchone()[0]
+            invalid_coords = conn.execute(
+                "SELECT COUNT(*) FROM diagnostics_messages WHERE reason = 'invalid_coordinates'"
+            ).fetchone()[0]
+            stationary = conn.execute(
+                "SELECT COUNT(*) FROM diagnostics_messages WHERE reason = 'stationary_position'"
+            ).fetchone()[0]
+        return {
+            "total_messages": total,
+            "invalid_coordinates": invalid_coords,
+            "stationary_messages": stationary,
         }
 
     def purge_expired(self, now: float | None = None) -> None:

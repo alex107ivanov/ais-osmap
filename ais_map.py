@@ -164,6 +164,17 @@ def stats():
     )
 
 
+@app.route("/api/diagnostics")
+def diagnostics():
+    limit = request.args.get("limit", default=20, type=int)
+    return jsonify(
+        {
+            "summary": storage.get_diagnostics_summary(),
+            "messages": storage.get_recent_diagnostics(limit=limit),
+        }
+    )
+
+
 def extract_static_fields(data: dict) -> dict:
     static_fields = {}
     for field in (
@@ -226,6 +237,7 @@ def handle_nmea(line: str):
 
         lat = data.get("lat")
         lon = data.get("lon")
+        message_type = data.get("msg_type") or data.get("type")
         if is_valid_coordinate(lat, lon):
             common_kwargs = {
                 "nav_status": data.get("status"),
@@ -234,7 +246,7 @@ def handle_nmea(line: str):
                 "raim": data.get("raim"),
                 "epfd": data.get("epfd"),
                 "epfd_text": data.get("epfd_text"),
-                "message_type": data.get("msg_type") or data.get("type"),
+                "message_type": message_type,
             }
             if is_trackable_position(data):
                 storage.upsert_position(
@@ -261,6 +273,26 @@ def handle_nmea(line: str):
                     append_track=False,
                     **common_kwargs,
                 )
+
+        else:
+            storage.record_diagnostic_message(
+                reason="invalid_coordinates",
+                raw_line=line,
+                payload=data,
+                mmsi=mmsi,
+                message_type=message_type,
+                created_at=seen_at,
+            )
+
+        if message_type in STATIONARY_MESSAGE_TYPES and is_valid_coordinate(lat, lon):
+            storage.record_diagnostic_message(
+                reason="stationary_position",
+                raw_line=line,
+                payload=data,
+                mmsi=mmsi,
+                message_type=message_type,
+                created_at=seen_at,
+            )
 
         storage.purge_expired(now=seen_at)
     except Exception as exc:

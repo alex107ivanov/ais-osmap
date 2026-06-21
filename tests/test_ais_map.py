@@ -140,6 +140,29 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["track_points"] == 1
 
 
+def test_handle_nmea_records_invalid_coordinate_diagnostic(monkeypatch, tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
+    monkeypatch.setattr(ais_map, "storage", storage)
+    monkeypatch.setattr(
+        ais_map,
+        "decode",
+        lambda *_args, **_kwargs: FakeMessage(
+            {
+                "mmsi": 2130200,
+                "msg_type": 1,
+                "lat": 91.0,
+                "lon": 181.0,
+            }
+        ),
+    )
+
+    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
+    diagnostics = storage.get_recent_diagnostics(limit=5)
+
+    assert diagnostics[0]["reason"] == "invalid_coordinates"
+    assert diagnostics[0]["mmsi"] == 2130200
+
+
 def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
     monkeypatch.setattr(ais_map, "storage", storage)
@@ -166,6 +189,7 @@ def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
 
     ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
     vessels = [ais_map.enrich_vessel(vessel) for vessel in storage.get_recent_vessels(include_tracks=True)]
+    diagnostics = storage.get_recent_diagnostics(limit=5)
 
     assert len(vessels) == 1
     assert vessels[0]["is_aid_to_navigation"] is True
@@ -177,27 +201,7 @@ def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
     assert vessels[0]["raim"] is True
     assert vessels[0]["track_points"] == 0
     assert vessels[0]["track"] == []
-
-
-def test_handle_nmea_ignores_invalid_coordinates(monkeypatch, tmp_path):
-    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=3600)
-    monkeypatch.setattr(ais_map, "storage", storage)
-    monkeypatch.setattr(
-        ais_map,
-        "decode",
-        lambda *_args, **_kwargs: FakeMessage(
-            {
-                "mmsi": 2130201,
-                "msg_type": 1,
-                "lat": 2528.0,
-                "lon": 2499.7,
-            }
-        ),
-    )
-
-    ais_map.handle_nmea("!AIVDM,1,1,,A,stub,0*00")
-
-    assert storage.get_recent_vessels(include_tracks=True) == []
+    assert diagnostics[0]["reason"] == "stationary_position"
 
 
 def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):

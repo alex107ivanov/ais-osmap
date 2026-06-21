@@ -56,6 +56,27 @@ def test_upsert_and_fetch_recent_vessels(tmp_path):
     assert vessels[0]["track_points"] == 1
 
 
+def test_record_and_fetch_diagnostics(tmp_path):
+    storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
+    storage.record_diagnostic_message(
+        reason="invalid_coordinates",
+        raw_line="!AIVDM,1,1,,A,stub,0*00",
+        payload={"mmsi": 2130200, "lat": 91.0, "lon": 181.0},
+        mmsi=2130200,
+        message_type=1,
+        created_at=1000,
+    )
+
+    summary = storage.get_diagnostics_summary()
+    messages = storage.get_recent_diagnostics(limit=5)
+
+    assert summary["total_messages"] == 1
+    assert summary["invalid_coordinates"] == 1
+    assert messages[0]["mmsi"] == 2130200
+    assert messages[0]["reason"] == "invalid_coordinates"
+    assert messages[0]["payload"]["lat"] == 91.0
+
+
 def test_purge_invalid_coordinates_removes_bad_rows(tmp_path):
     storage = AISStorage(tmp_path / "test.sqlite3", ttl_seconds=60)
     storage.upsert_position(1, 41.0, 42.0, None, None, None, seen_at=1000)

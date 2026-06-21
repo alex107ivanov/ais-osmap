@@ -8,6 +8,9 @@
   --accent-deep: #8d3f25;
   --track: #bf5b39;
   --surface-strong: rgba(255, 252, 247, 0.96);
+  --vessel-color: #1e6b84;
+  --station-color: #4d6c3c;
+  --aton-color: #9d5126;
 }
 
 html, body, #map { height: 100%; margin: 0; }
@@ -15,6 +18,7 @@ body { font-family: Georgia, "Times New Roman", serif; }
 
 .control-panel,
 .detail-panel,
+.diagnostics-panel,
 .stats-strip {
   position: absolute;
   z-index: 1000;
@@ -39,6 +43,33 @@ body { font-family: Georgia, "Times New Roman", serif; }
   padding: 16px;
   display: none;
   background: var(--surface-strong);
+}
+
+.diagnostics-panel {
+  right: 14px;
+  bottom: 14px;
+  width: min(340px, calc(100vw - 28px));
+  padding: 14px 16px;
+  max-height: 260px;
+  overflow: auto;
+}
+
+.diagnostics-list {
+  display: grid;
+  gap: 8px;
+}
+
+.diagnostics-item {
+  padding: 10px 12px;
+  border-radius: 12px;
+  background: rgba(31, 53, 70, 0.06);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.diagnostics-reason {
+  font-weight: bold;
+  color: var(--accent-deep);
 }
 
 .stats-strip {
@@ -73,14 +104,16 @@ body { font-family: Georgia, "Times New Roman", serif; }
 }
 
 .control-panel h1,
-.detail-panel h2 {
+.detail-panel h2,
+.diagnostics-panel h2 {
   margin: 0 0 6px;
   line-height: 1.1;
   color: var(--text-main);
 }
 
 .control-panel h1 { font-size: 20px; }
-.detail-panel h2 { font-size: 22px; }
+.detail-panel h2,
+.diagnostics-panel h2 { font-size: 22px; }
 
 .control-panel p,
 .detail-subtitle,
@@ -184,18 +217,48 @@ body { font-family: Georgia, "Times New Roman", serif; }
   font-family: Georgia, "Times New Roman", serif;
 }
 
-@media (max-width: 900px) {
+.map-marker {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  border: 2px solid rgba(255, 255, 255, 0.92);
+  box-shadow: 0 4px 14px rgba(18, 33, 42, 0.24);
+}
+
+.map-marker--vessel {
+  background: var(--vessel-color);
+}
+
+.map-marker--station {
+  background: var(--station-color);
+  transform: rotate(45deg);
+  border-radius: 4px;
+}
+
+.map-marker--aton {
+  background: var(--aton-color);
+  clip-path: polygon(50% 0%, 100% 100%, 0% 100%);
+  border: 0;
+}
+
+@media (max-width: 1180px) {
+  .diagnostics-panel {
+    left: 10px;
+    right: 10px;
+    width: auto;
+    bottom: 10px;
+    max-height: 180px;
+  }
+
   .detail-panel {
     top: auto;
     right: 10px;
-    bottom: 72px;
+    bottom: 204px;
   }
 
   .stats-strip {
     left: 10px;
-    right: 10px;
-    width: auto;
-    justify-content: space-between;
+    bottom: 204px;
   }
 }
 
@@ -215,6 +278,9 @@ body { font-family: Georgia, "Times New Roman", serif; }
 
   .stats-strip {
     gap: 8px;
+    right: 10px;
+    width: auto;
+    justify-content: space-between;
   }
 
   .stats-chip-value {
