@@ -382,3 +382,32 @@ body { font-family: Georgia, "Times New Roman", serif; }
     font-size: 16px;
   }
 }
+
+.raw-panel.is-collapsed .raw-controls,
+.raw-panel.is-collapsed .detail-subtitle,
+.raw-panel.is-collapsed .raw-timeline,
+.raw-panel.is-collapsed .raw-list {
+  display: none;
+}
+
+.raw-timeline {
+  display: grid;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+
+.raw-timeline-item {
+  padding: 8px 10px;
+  border-radius: 10px;
+  background: rgba(191, 91, 57, 0.08);
+  color: var(--text-main);
+  font-size: 13px;
+}
+
+.raw-type-chip {
+  display: inline-block;
+  margin: 4px 6px 0 0;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(31, 53, 70, 0.08);
+}

@@ -230,6 +230,35 @@ class AISStorage:
             for row in rows
         ]
 
+
+    def get_raw_message_timeline(self, limit_mmsi: int = 10, now: float | None = None) -> list[dict[str, Any]]:
+        cutoff = (now or time.time()) - self.raw_retention_seconds
+        with self._connect() as conn:
+            rows = conn.execute(
+                """
+                SELECT mmsi, message_type, COUNT(*) AS count, MAX(created_at) AS last_seen
+                FROM raw_messages
+                WHERE created_at >= ? AND mmsi IS NOT NULL
+                GROUP BY mmsi, message_type
+                ORDER BY last_seen DESC
+                """,
+                (cutoff,),
+            ).fetchall()
+
+        grouped: dict[int, dict[str, Any]] = {}
+        for row in rows:
+            grouped.setdefault(
+                row["mmsi"],
+                {"mmsi": row["mmsi"], "last_seen": row["last_seen"], "message_types": []},
+            )
+            grouped[row["mmsi"]]["last_seen"] = max(grouped[row["mmsi"]]["last_seen"], row["last_seen"])
+            grouped[row["mmsi"]]["message_types"].append(
+                {"message_type": row["message_type"], "count": row["count"]}
+            )
+
+        timeline = sorted(grouped.values(), key=lambda item: item["last_seen"], reverse=True)
+        return timeline[:limit_mmsi]
+
     def get_raw_message_summary(self, now: float | None = None) -> dict[str, Any]:
         cutoff = (now or time.time()) - self.raw_retention_seconds
         with self._connect() as conn:

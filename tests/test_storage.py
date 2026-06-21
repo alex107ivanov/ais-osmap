@@ -75,10 +75,13 @@ def test_record_and_query_raw_messages(tmp_path):
 
     summary = storage.get_raw_message_summary(now=1015)
     messages = storage.get_recent_raw_messages(limit=10, mmsi=2130200)
+    timeline = storage.get_raw_message_timeline(limit_mmsi=10, now=1015)
 
     assert summary["total_messages"] >= 2
     assert messages[0]["mmsi"] == 2130200
     assert messages[0]["message_type"] == 5
+    assert timeline[0]["mmsi"] in {2130200, 2130201}
+    assert timeline[0]["message_types"]
 
 
 def test_purge_old_raw_messages(tmp_path):

@@ -45,6 +45,13 @@ def test_extract_static_fields_strips_values():
     }
 
 
+def test_message_type_labels():
+    assert ais_map.get_message_type_label(1) == "Position report A"
+    assert ais_map.get_message_type_label(4) == "Base station report"
+    assert ais_map.get_message_type_label(5) == "Static and voyage data"
+    assert ais_map.get_message_type_label(99) == "AIS type 99"
+
+
 def test_vessel_type_label_and_icon_mapping():
     assert ais_map.get_vessel_type_label(70) == "Cargo"
     assert ais_map.get_vessel_type_label(71) == "Cargo"
@@ -55,9 +62,10 @@ def test_vessel_type_label_and_icon_mapping():
 
 
 def test_enrich_vessel_adds_type_metadata():
-    vessel = ais_map.enrich_vessel({"mmsi": 1, "vessel_type": 52, "is_aid_to_navigation": False})
+    vessel = ais_map.enrich_vessel({"mmsi": 1, "vessel_type": 52, "message_type": 4, "is_aid_to_navigation": False})
 
     assert vessel["vessel_type_label"] == "Tug"
+    assert vessel["message_type_label"] == "Base station report"
     assert vessel["type_icon"] == "🪢"
 
 
@@ -155,6 +163,7 @@ def test_handle_nmea_updates_static_and_position(monkeypatch, tmp_path):
     assert vessels[0]["status_text"] == "Under way using engine"
     assert vessels[0]["epfd_text"] == "Combined GPS/GLONASS"
     assert vessels[0]["message_type"] == 1
+    assert vessels[0]["message_type_label"] == "Position report A"
     assert vessels[0]["accuracy"] is True
     assert vessels[0]["raim"] is False
     assert vessels[0]["vessel_type_label"] == "Tug"
@@ -221,6 +230,7 @@ def test_handle_nmea_keeps_aid_to_navigation_static(monkeypatch, tmp_path):
     assert vessels[0]["vessel_type_label"] == "Aid to navigation"
     assert vessels[0]["type_icon"] == "🗼"
     assert vessels[0]["message_type"] == 21
+    assert vessels[0]["message_type_label"] == "Aid-to-navigation report"
     assert vessels[0]["epfd_text"] == "Combined GPS/GLONASS"
     assert vessels[0]["raim"] is True
     assert vessels[0]["track_points"] == 0
@@ -251,7 +261,7 @@ def test_handle_nmea_normalizes_shiptype_field(monkeypatch, tmp_path):
     assert vessels == []
 
 
-def test_static_assets_include_filters_diagnostics_and_raw_panel():
+def test_static_assets_include_filters_diagnostics_raw_panel_and_toggle():
     app_js = open('static/app.js', 'r', encoding='utf-8').read()
     template = open('templates/index.html', 'r', encoding='utf-8').read()
 
@@ -261,5 +271,7 @@ def test_static_assets_include_filters_diagnostics_and_raw_panel():
     assert 'filter-diagnostics-hit' in template
     assert 'diagnostics-toggle' in template
     assert 'raw-panel' in template
+    assert 'raw-toggle' in template
+    assert 'raw-timeline' in template
     assert 'api/raw-messages' in app_js
     assert 'passesFilters' in app_js

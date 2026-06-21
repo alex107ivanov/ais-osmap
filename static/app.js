@@ -31,7 +31,10 @@ const controls = {
   diagnosticsToggle: document.getElementById('diagnostics-toggle'),
   diagnosticsSummary: document.getElementById('diagnostics-summary'),
   diagnosticsList: document.getElementById('diagnostics-list'),
+  rawPanel: document.getElementById('raw-panel'),
+  rawToggle: document.getElementById('raw-toggle'),
   rawSummary: document.getElementById('raw-summary'),
+  rawTimeline: document.getElementById('raw-timeline'),
   rawList: document.getElementById('raw-list'),
   rawFilterMmsi: document.getElementById('raw-filter-mmsi'),
   rawFilterType: document.getElementById('raw-filter-type'),
@@ -59,6 +62,7 @@ function savePreferences() {
     filterAton: controls.filterAton.checked,
     filterDiagnosticsHit: controls.filterDiagnosticsHit.checked,
     diagnosticsCollapsed: controls.diagnosticsPanel.classList.contains('is-collapsed'),
+    rawCollapsed: controls.rawPanel.classList.contains('is-collapsed'),
     rawFilterMmsi: controls.rawFilterMmsi.value,
     rawFilterType: controls.rawFilterType.value,
   };
@@ -78,7 +82,9 @@ function applyPreferences() {
   controls.rawFilterMmsi.value = preferences.rawFilterMmsi ?? '';
   controls.rawFilterType.value = preferences.rawFilterType ?? '';
   controls.diagnosticsPanel.classList.toggle('is-collapsed', preferences.diagnosticsCollapsed ?? false);
+  controls.rawPanel.classList.toggle('is-collapsed', preferences.rawCollapsed ?? false);
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
+  controls.rawToggle.textContent = controls.rawPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
 }
 
 function vesselKind(vessel) {
@@ -133,6 +139,7 @@ function popupHtml(vessel) {
     <b>${vessel.type_icon || ''} ${vessel.name || 'Unknown vessel'}</b><br>
     MMSI: ${vessel.mmsi}<br>
     Type: ${kind}<br>
+    Message: ${vessel.message_type_label || vessel.message_type || '?'}<br>
     Nav status: ${vessel.nav_status_text || vessel.status_text || '?'}<br>
     Position source: ${vessel.epfd_text || '?'}<br>
     Accuracy: ${vessel.accuracy === null || vessel.accuracy === undefined ? '?' : (vessel.accuracy ? 'High' : 'Low')}<br>
@@ -185,8 +192,8 @@ function renderDetailPanel(vessel) {
     </div>
     <ul class="detail-meta">
       <li><strong>Type:</strong> ${formatValue(kind)}</li>
+      <li><strong>Message:</strong> ${formatValue(vessel.message_type_label || vessel.message_type)}</li>
       <li><strong>Nav status:</strong> ${formatValue(vessel.nav_status_text || vessel.status_text)}</li>
-      <li><strong>Message type:</strong> ${formatValue(vessel.message_type)}</li>
       <li><strong>Position source:</strong> ${formatValue(vessel.epfd_text)}</li>
       <li><strong>Accuracy:</strong> ${vessel.accuracy === null || vessel.accuracy === undefined ? '?' : (vessel.accuracy ? 'High' : 'Low')}</li>
       <li><strong>RAIM:</strong> ${vessel.raim === null || vessel.raim === undefined ? '?' : (vessel.raim ? 'On' : 'Off')}</li>
@@ -215,15 +222,29 @@ function updateDiagnostics(data) {
   `).join('');
 }
 
+function renderRawTimeline(timeline) {
+  if (!timeline.length) {
+    controls.rawTimeline.innerHTML = '<p class="detail-empty">No raw message timeline yet.</p>';
+    return;
+  }
+  controls.rawTimeline.innerHTML = timeline.map(item => `
+    <div class="raw-timeline-item">
+      <div><strong>MMSI:</strong> ${item.mmsi}</div>
+      <div>${item.message_types.map(typeItem => `<span class="raw-type-chip">${typeItem.label || typeItem.message_type} x${typeItem.count}</span>`).join('')}</div>
+    </div>
+  `).join('');
+}
+
 function updateRawPanel(data) {
   controls.rawSummary.textContent = `${data.summary.total_messages} raw messages in ${Math.round(data.summary.retention_seconds / 3600)}h retention, ${data.summary.unique_mmsi} MMSIs`;
+  renderRawTimeline(data.timeline || []);
   if (!data.messages.length) {
     controls.rawList.innerHTML = '<p class="detail-empty">No raw messages for this filter.</p>';
     return;
   }
   controls.rawList.innerHTML = data.messages.map(message => `
     <div class="raw-item">
-      <div><strong>MMSI:</strong> ${message.mmsi ?? '?'} | <strong>Type:</strong> ${message.message_type ?? '?'}</div>
+      <div><strong>MMSI:</strong> ${message.mmsi ?? '?'} | <strong>${message.message_type_label || message.message_type || '?'}</strong></div>
       <div>${message.raw_line ? message.raw_line.slice(0, 96) : 'No raw line stored'}</div>
     </div>
   `).join('');
@@ -381,6 +402,11 @@ for (const filterControl of [controls.filterVessels, controls.filterStations, co
 controls.diagnosticsToggle.addEventListener('click', () => {
   controls.diagnosticsPanel.classList.toggle('is-collapsed');
   controls.diagnosticsToggle.textContent = controls.diagnosticsPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
+  savePreferences();
+});
+controls.rawToggle.addEventListener('click', () => {
+  controls.rawPanel.classList.toggle('is-collapsed');
+  controls.rawToggle.textContent = controls.rawPanel.classList.contains('is-collapsed') ? 'Show' : 'Hide';
   savePreferences();
 });
 controls.rawRefresh.addEventListener('click', () => {

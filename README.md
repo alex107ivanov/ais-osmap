@@ -27,7 +27,7 @@ A tiny Python app that receives AIS NMEA over UDP from `rtl-ais`, decodes messag
 ## Raw feed explorer
 The app now stores all decoded AIS messages for a short rolling window and exposes them through:
 - `GET /api/raw-messages`
-- the in-app `Raw Feed` panel
+- the in-app `Raw Feed` panel, which can now be collapsed when you do not need it
 
 You can filter by MMSI or message type to inspect traffic like:
 - `type 4` stationary/base-station-like reports
@@ -122,7 +122,7 @@ Environment variables:
 - `GET /api/health` returns status, uptime, TTL, DB path, startup cleanup counts, and raw retention window
 - `GET /api/stats` returns active vessel count, total tracked points, AtoN/base-station-like counts, max vessel age, and app uptime
 - `GET /api/diagnostics` returns recent diagnostic messages and summary counts
-- `GET /api/raw-messages` returns recent raw decoded AIS messages with optional `mmsi` and `message_type` filters
+- `GET /api/raw-messages` returns recent raw decoded AIS messages with optional `mmsi` and `message_type` filters, plus a per-MMSI message-type timeline
 
 ## Persistence model
 SQLite stores three kinds of data:
@@ -147,3 +147,7 @@ The map overlay includes:
 - a raw feed panel for filtering recent decoded AIS traffic by MMSI or message type
 
 The app stores the main map toggles in `localStorage`, so your preferred viewing mode survives page reloads.
+
+## Raw timeline
+The raw explorer now adds message-type labels such as `Position report A`, `Base station report`, and `Static and voyage data`.
+It also shows a compact per-MMSI timeline of recent message types, which makes it easier to spot targets that alternate between static, position, and infrastructure-style traffic.

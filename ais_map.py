@@ -61,6 +61,26 @@ AID_TO_NAVIGATION_MESSAGE_TYPES = {21}
 STATIONARY_MESSAGE_TYPES = {4, 21}
 
 
+MESSAGE_TYPE_LABELS = {
+    1: "Position report A",
+    2: "Position report A",
+    3: "Position report A",
+    4: "Base station report",
+    5: "Static and voyage data",
+    18: "Class B position",
+    19: "Class B extended position",
+    20: "Data link management",
+    21: "Aid-to-navigation report",
+    24: "Static data report",
+}
+
+
+def get_message_type_label(message_type: int | None) -> str | None:
+    if message_type is None:
+        return None
+    return MESSAGE_TYPE_LABELS.get(message_type, f"AIS type {message_type}")
+
+
 def get_vessel_type_label(vessel_type: int | None) -> str | None:
     if vessel_type is None:
         return None
@@ -112,6 +132,7 @@ def enrich_vessel(vessel: dict) -> dict:
         **vessel,
         "vessel_type_label": vessel_type_label,
         "type_icon": get_vessel_type_icon(vessel_type_label),
+        "message_type_label": get_message_type_label(vessel.get("message_type")),
         "is_aid_to_navigation": aid_flag,
     }
 
@@ -182,10 +203,18 @@ def raw_messages():
     limit = request.args.get("limit", default=50, type=int)
     mmsi = request.args.get("mmsi", default=None, type=int)
     message_type = request.args.get("message_type", default=None, type=int)
+    messages = storage.get_recent_raw_messages(limit=limit, mmsi=mmsi, message_type=message_type)
+    for message in messages:
+        message["message_type_label"] = get_message_type_label(message.get("message_type"))
+    timeline = storage.get_raw_message_timeline(limit_mmsi=10)
+    for item in timeline:
+        for type_item in item["message_types"]:
+            type_item["label"] = get_message_type_label(type_item.get("message_type"))
     return jsonify(
         {
             "summary": storage.get_raw_message_summary(),
-            "messages": storage.get_recent_raw_messages(limit=limit, mmsi=mmsi, message_type=message_type),
+            "timeline": timeline,
+            "messages": messages,
         }
     )
 

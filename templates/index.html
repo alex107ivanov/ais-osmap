@@ -68,6 +68,7 @@
 <div id="raw-panel" class="raw-panel">
   <div class="diagnostics-header">
     <h2>Raw Feed</h2>
+    <button id="raw-toggle" class="diagnostics-toggle" type="button" aria-label="Collapse raw feed">Hide</button>
   </div>
   <div class="raw-controls">
     <input id="raw-filter-mmsi" type="text" placeholder="Filter MMSI">
@@ -75,6 +76,9 @@
     <button id="raw-refresh" type="button">Refresh</button>
   </div>
   <p id="raw-summary" class="detail-subtitle">No raw feed loaded yet.</p>
+  <div id="raw-timeline" class="raw-timeline">
+    <p class="detail-empty">Waiting for timeline data.</p>
+  </div>
   <div id="raw-list" class="raw-list">
     <p class="detail-empty">Waiting for raw feed data.</p>
   </div>
